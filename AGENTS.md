@@ -262,6 +262,11 @@ These features reduce context/token usage while providing decision-ready data.
 | `--min-spend N` | Filter: only entities with spend >= N | `--min-spend 10` |
 | `--min-impressions N` | Filter: only entities with impressions >= N | `--min-impressions 1000` |
 | `--min-results N` | Filter: only entities with results >= N | `--min-results 1` |
+| `--active-only` | Filter: only show active entities | `--active-only` |
+| `--result-type` | Filter by result type (lead, purchase, link_click) | `--result-type lead` |
+| `--with-budget` | Add budget context (daily_budget, budget_remaining, budget_pct_used) | `--with-budget` |
+| `--include-delivery` | Add delivery status (delivery_status, learning_phase, delivery_issues) | `--include-delivery` |
+| `--breakdowns-summary` | Summarize breakdowns: best/worst per dimension (requires --breakdowns) | `--breakdowns-summary` |
 | `--compare A:B` | Compare two periods, show change percentages | `--compare last_7d:last_14d` |
 
 ### Ads List with Insights
@@ -324,6 +329,21 @@ meta-ads insights get --level campaign --compare last_7d:last_14d
 meta-ads ads list --with-insights --date-preset last_7d --output-fields name,spend,cost_per_result
 ```
 
+**Active ads with budget context:**
+```bash
+meta-ads insights get --level ad --date-preset last_7d --flatten --active-only --with-budget --compact
+```
+
+**Find delivery issues:**
+```bash
+meta-ads insights get --level ad --date-preset last_7d --flatten --include-delivery --min-spend 5
+```
+
+**Best/worst performing audiences:**
+```bash
+meta-ads insights get --level ad --date-preset last_7d --breakdowns age,gender --breakdowns-summary
+```
+
 ### Compare Output Format
 
 ```json
@@ -338,6 +358,75 @@ meta-ads ads list --with-insights --date-preset last_7d --output-fields name,spe
 ```
 
 `trend` values: `improving` (CPR down >10%), `declining` (CPR up >10%), `stable`
+
+### Budget Context Output (--with-budget)
+
+Adds budget data to each insight row:
+
+```bash
+meta-ads insights get --level ad --date-preset last_7d --flatten --with-budget --compact
+```
+
+```json
+{
+  "name": "Product Ad",
+  "id": "120410123456789",
+  "spend": 22.78,
+  "results": 2,
+  "cost_per_result": 11.39,
+  "daily_budget": 50,
+  "budget_remaining": 40.77,
+  "budget_pct_used": 18
+}
+```
+
+### Delivery Status Output (--include-delivery)
+
+Adds delivery/learning phase info:
+
+```bash
+meta-ads insights get --level ad --date-preset last_7d --flatten --include-delivery
+```
+
+```json
+{
+  "ad_name": "Product Ad",
+  "spend": 22.78,
+  "delivery_status": "ACTIVE",
+  "learning_phase": "LEARNING",
+  "delivery_issues": ["Low budget may limit delivery"]
+}
+```
+
+`learning_phase` values: `LEARNING`, `SUCCESS`, `FAIL` (only appears when in learning phase)
+
+### Breakdowns Summary Output (--breakdowns-summary)
+
+Summarizes breakdowns by best/worst performer per dimension:
+
+```bash
+meta-ads insights get --level ad --date-preset last_7d --breakdowns age,gender --breakdowns-summary
+```
+
+```json
+{
+  "dimensions": [
+    {
+      "dimension": "age",
+      "best": { "value": "45-54", "spend": 9.21, "results": 5, "cost_per_result": 1.84 },
+      "worst": { "value": "65+", "spend": 7.72, "results": 1, "cost_per_result": 7.72 },
+      "all_values": [...]
+    },
+    {
+      "dimension": "gender",
+      "best": { "value": "male", "spend": 30.75, "results": 11, "cost_per_result": 2.80 },
+      "worst": { "value": "female", "spend": 9.74, "results": 1, "cost_per_result": 9.74 },
+      "all_values": [...]
+    }
+  ],
+  "totals": { "spend": 41.79, "results": 12, "cost_per_result": 3.48 }
+}
+```
 
 ---
 

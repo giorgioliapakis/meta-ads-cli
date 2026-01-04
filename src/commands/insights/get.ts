@@ -27,6 +27,14 @@ interface FlatInsight {
   campaign_name?: string;
   // Entity status (populated by --active-only)
   status?: string;
+  // Budget context (populated by --with-budget)
+  daily_budget?: number;
+  budget_remaining?: number;
+  budget_pct_used?: number;
+  // Delivery context (populated by --include-delivery)
+  delivery_status?: string;
+  learning_phase?: string;
+  delivery_issues?: string[];
   // Core metrics
   spend: number;
   impressions: number;
@@ -84,6 +92,32 @@ interface PeriodComparison {
   trend: 'improving' | 'declining' | 'stable';
 }
 
+// Breakdowns summary for quick analysis
+interface BreakdownPerformer {
+  value: string;
+  spend: number;
+  results: number;
+  cost_per_result: number | null;
+}
+
+interface BreakdownDimension {
+  dimension: string;
+  best: BreakdownPerformer | null;
+  worst: BreakdownPerformer | null;
+  all_values: BreakdownPerformer[];
+}
+
+interface BreakdownsSummary {
+  dimensions: BreakdownDimension[];
+  totals: {
+    spend: number;
+    results: number;
+    cost_per_result: number | null;
+  };
+  date_start: string;
+  date_stop: string;
+}
+
 function generateSummary(flattened: FlatInsight[], level: string): InsightsSummary {
   const totalSpend = flattened.reduce((sum, f) => sum + f.spend, 0);
   const totalResults = flattened.reduce((sum, f) => sum + f.results, 0);
@@ -124,6 +158,87 @@ function generateSummary(flattened: FlatInsight[], level: string): InsightsSumma
     worst_performer: worstPerformer,
     date_start: flattened[0]?.date_start ?? '',
     date_stop: flattened[0]?.date_stop ?? '',
+  };
+}
+
+function generateBreakdownsSummary(insights: Insights[], breakdownFields: string[]): BreakdownsSummary {
+  // Calculate totals
+  const totalSpend = insights.reduce((sum, i) => sum + Number(i.spend ?? 0), 0);
+  const totalResults = insights.reduce((sum, i) => {
+    const actions = i.actions ?? [];
+    for (const actionType of CONVERSION_ACTIONS) {
+      const action = actions.find((a) =>
+        a.action_type === actionType ||
+        a.action_type === `offsite_conversion.fb_pixel_${actionType}` ||
+        a.action_type === `onsite_web_${actionType}`
+      );
+      if (action) return sum + Number(action.value);
+    }
+    return sum;
+  }, 0);
+
+  const dimensions: BreakdownDimension[] = [];
+
+  for (const dimension of breakdownFields) {
+    // Aggregate by dimension value
+    const valueMap = new Map<string, { spend: number; results: number }>();
+
+    for (const insight of insights) {
+      const value = (insight as unknown as Record<string, unknown>)[dimension] as string | undefined;
+      if (!value) continue;
+
+      const existing = valueMap.get(value) ?? { spend: 0, results: 0 };
+      existing.spend += Number(insight.spend ?? 0);
+
+      // Count results
+      const actions = insight.actions ?? [];
+      for (const actionType of CONVERSION_ACTIONS) {
+        const action = actions.find((a) =>
+          a.action_type === actionType ||
+          a.action_type === `offsite_conversion.fb_pixel_${actionType}` ||
+          a.action_type === `onsite_web_${actionType}`
+        );
+        if (action) {
+          existing.results += Number(action.value);
+          break;
+        }
+      }
+
+      valueMap.set(value, existing);
+    }
+
+    // Convert to performers array
+    const performers: BreakdownPerformer[] = [];
+    for (const [value, data] of valueMap.entries()) {
+      performers.push({
+        value,
+        spend: Math.round(data.spend * 100) / 100,
+        results: data.results,
+        cost_per_result: data.results > 0 ? Math.round((data.spend / data.results) * 100) / 100 : null,
+      });
+    }
+
+    // Sort by cost_per_result (ascending - lower is better)
+    const withResults = performers.filter((p) => p.results > 0 && p.cost_per_result !== null);
+    withResults.sort((a, b) => (a.cost_per_result as number) - (b.cost_per_result as number));
+
+    dimensions.push({
+      dimension,
+      best: withResults.length > 0 ? withResults[0] : null,
+      worst: withResults.length > 0 ? withResults[withResults.length - 1] : null,
+      all_values: performers.sort((a, b) => b.spend - a.spend), // Sort all by spend descending
+    });
+  }
+
+  return {
+    dimensions,
+    totals: {
+      spend: Math.round(totalSpend * 100) / 100,
+      results: totalResults,
+      cost_per_result: totalResults > 0 ? Math.round((totalSpend / totalResults) * 100) / 100 : null,
+    },
+    date_start: insights[0]?.date_start ?? '',
+    date_stop: insights[0]?.date_stop ?? '',
   };
 }
 
@@ -313,8 +428,11 @@ export default class Get extends AuthenticatedCommand {
     'min-results': Flags.integer({ description: 'Filter: minimum results/conversions' }),
     'active-only': Flags.boolean({ description: 'Filter: only show active entities (requires extra API call)', default: false }),
     'result-type': Flags.string({ description: 'Filter by result type (lead, purchase, link_click, etc.)' }),
+    'with-budget': Flags.boolean({ description: 'Include budget context (daily_budget, budget_remaining, budget_pct_used)', default: false }),
+    'include-delivery': Flags.boolean({ description: 'Include delivery status (delivery_status, learning_phase, delivery_issues)', default: false }),
     compact: Flags.boolean({ description: 'Ultra-minimal output: name, spend, results, cost_per_result only', default: false }),
     summary: Flags.boolean({ description: 'Aggregated summary: totals, averages, best/worst performers', default: false }),
+    'breakdowns-summary': Flags.boolean({ description: 'Summarize breakdowns: best/worst performer per dimension (requires --breakdowns)', default: false }),
     compare: Flags.string({ description: 'Compare periods (e.g., last_7d:previous_7d or this_week:last_week)' }),
   };
 
@@ -366,6 +484,17 @@ export default class Get extends AuthenticatedCommand {
         limit: flags.limit,
       });
 
+      // Handle breakdowns summary mode
+      if (flags['breakdowns-summary']) {
+        if (!flags.breakdowns) {
+          throw new Error('--breakdowns-summary requires --breakdowns to be specified');
+        }
+        const breakdownFields = flags.breakdowns.split(',');
+        const summary = generateBreakdownsSummary(insights, breakdownFields);
+        this.outputSuccess(summary, this.client.getAccountId());
+        return;
+      }
+
       if (flags.flatten || flags.compact || flags.summary) {
         let flattened = insights.map(flattenInsight);
 
@@ -397,6 +526,107 @@ export default class Get extends AuthenticatedCommand {
               return { ...f, status: id ? statusMap.get(id) : undefined };
             })
             .filter((f) => f.status === 'ACTIVE');
+        }
+
+        // Fetch budget context if requested
+        if (flags['with-budget']) {
+          // Budgets are typically at campaign level
+          const campaigns = await this.client.listCampaigns({ limit: 100, all: true });
+          const budgetMap = new Map<string, { daily_budget: number; budget_remaining: number }>();
+
+          for (const campaign of campaigns.data) {
+            if (campaign.daily_budget || campaign.lifetime_budget) {
+              budgetMap.set(campaign.id, {
+                daily_budget: Number(campaign.daily_budget ?? campaign.lifetime_budget ?? 0) / 100, // Convert cents to dollars
+                budget_remaining: Number(campaign.budget_remaining ?? 0) / 100,
+              });
+            }
+          }
+
+          // Add budget info to each insight
+          flattened = flattened.map((f) => {
+            const budget = f.campaign_id ? budgetMap.get(f.campaign_id) : undefined;
+            if (budget) {
+              const pctUsed = budget.daily_budget > 0
+                ? Math.round(((budget.daily_budget - budget.budget_remaining) / budget.daily_budget) * 100)
+                : 0;
+              return {
+                ...f,
+                daily_budget: budget.daily_budget,
+                budget_remaining: budget.budget_remaining,
+                budget_pct_used: pctUsed,
+              };
+            }
+            return f;
+          });
+        }
+
+        // Fetch delivery status if requested
+        if (flags['include-delivery'] && flags.level !== 'account') {
+          interface DeliveryInfo {
+            effective_status: string;
+            learning_phase?: string;
+            issues?: string[];
+          }
+          const deliveryMap = new Map<string, DeliveryInfo>();
+
+          if (flags.level === 'ad') {
+            // For ads, we need both ad issues and adset learning phase
+            const [ads, adsets] = await Promise.all([
+              this.client.listAds({ limit: 100, all: true, includeDelivery: true }),
+              this.client.listAdSets({ limit: 100, all: true, includeDelivery: true }),
+            ]);
+
+            // Build adset learning phase map
+            const adsetLearningMap = new Map<string, string>();
+            for (const adset of adsets.data) {
+              if (adset.learning_phase_info?.status) {
+                adsetLearningMap.set(adset.id, adset.learning_phase_info.status);
+              }
+            }
+
+            // Build delivery map for ads
+            for (const ad of ads.data) {
+              const issues = ad.issues_info?.map((i) => i.error_summary) ?? [];
+              deliveryMap.set(ad.id, {
+                effective_status: ad.effective_status,
+                learning_phase: ad.adset_id ? adsetLearningMap.get(ad.adset_id) : undefined,
+                issues: issues.length > 0 ? issues : undefined,
+              });
+            }
+          } else if (flags.level === 'adset') {
+            const adsets = await this.client.listAdSets({ limit: 100, all: true, includeDelivery: true });
+            for (const adset of adsets.data) {
+              const issues = adset.issues_info?.map((i) => i.error_summary) ?? [];
+              deliveryMap.set(adset.id, {
+                effective_status: adset.effective_status,
+                learning_phase: adset.learning_phase_info?.status,
+                issues: issues.length > 0 ? issues : undefined,
+              });
+            }
+          } else if (flags.level === 'campaign') {
+            const campaigns = await this.client.listCampaigns({ limit: 100, all: true });
+            for (const campaign of campaigns.data) {
+              deliveryMap.set(campaign.id, {
+                effective_status: campaign.effective_status,
+              });
+            }
+          }
+
+          // Add delivery info to each insight
+          flattened = flattened.map((f) => {
+            const id = f.ad_id ?? f.adset_id ?? f.campaign_id;
+            const delivery = id ? deliveryMap.get(id) : undefined;
+            if (delivery) {
+              return {
+                ...f,
+                delivery_status: delivery.effective_status,
+                ...(delivery.learning_phase && { learning_phase: delivery.learning_phase }),
+                ...(delivery.issues && { delivery_issues: delivery.issues }),
+              };
+            }
+            return f;
+          });
         }
 
         // Apply metric filters

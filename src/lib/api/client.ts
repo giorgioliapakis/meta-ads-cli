@@ -232,11 +232,13 @@ export class MetaAdsClient {
 
   // ============ Ad Set Operations ============
 
-  async listAdSets(options?: ListOptions & { campaignId?: string; status?: string }): Promise<MetaPaginatedResponse<AdSet>> {
-    const fields = options?.fields ?? [
+  async listAdSets(options?: ListOptions & { campaignId?: string; status?: string; includeDelivery?: boolean }): Promise<MetaPaginatedResponse<AdSet>> {
+    const baseFields = [
       'id', 'name', 'campaign_id', 'status', 'effective_status', 'created_time', 'updated_time',
       'daily_budget', 'lifetime_budget', 'budget_remaining', 'billing_event', 'optimization_goal',
     ];
+    const deliveryFields = options?.includeDelivery ? ['learning_phase_info', 'issues_info'] : [];
+    const fields = options?.fields ?? [...baseFields, ...deliveryFields];
     const endpoint = options?.campaignId ? `${options.campaignId}/adsets` : `${this.getAccountId()}/adsets`;
 
     const fetchPage = async (cursor?: string): Promise<MetaPaginatedResponse<AdSet>> => {
@@ -299,11 +301,13 @@ export class MetaAdsClient {
 
   // ============ Ad Operations ============
 
-  async listAds(options?: ListOptions & { adsetId?: string; campaignId?: string; status?: string }): Promise<MetaPaginatedResponse<Ad>> {
-    const fields = options?.fields ?? [
+  async listAds(options?: ListOptions & { adsetId?: string; campaignId?: string; status?: string; includeDelivery?: boolean }): Promise<MetaPaginatedResponse<Ad>> {
+    const baseFields = [
       'id', 'name', 'adset_id', 'campaign_id', 'status', 'effective_status',
       'created_time', 'updated_time', 'preview_shareable_link',
     ];
+    const deliveryFields = options?.includeDelivery ? ['issues_info'] : [];
+    const fields = options?.fields ?? [...baseFields, ...deliveryFields];
 
     let endpoint: string;
     if (options?.adsetId) {

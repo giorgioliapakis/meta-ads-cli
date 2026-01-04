@@ -99,6 +99,16 @@ export interface AdSet {
   bid_strategy?: string;
   bid_amount?: string;
   targeting?: Record<string, unknown>;
+  // Delivery/learning phase info
+  learning_phase_info?: {
+    status: 'LEARNING' | 'SUCCESS' | 'FAIL';
+  };
+  issues_info?: Array<{
+    level: string;
+    error_code: number;
+    error_summary: string;
+    error_message?: string;
+  }>;
 }
 
 export interface Ad {
@@ -112,6 +122,13 @@ export interface Ad {
   updated_time: string;
   creative?: AdCreative;
   preview_shareable_link?: string;
+  // Delivery info
+  issues_info?: Array<{
+    level: string;
+    error_code: number;
+    error_summary: string;
+    error_message?: string;
+  }>;
 }
 
 export interface AdCreative {
