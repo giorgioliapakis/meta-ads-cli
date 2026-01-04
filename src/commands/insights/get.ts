@@ -63,6 +63,13 @@ interface CompactInsight {
   results: number;
   cost_per_result: number | null;
   result_type: string;
+  // Optional context fields (added by flags)
+  daily_budget?: number;
+  budget_remaining?: number;
+  budget_pct_used?: number;
+  delivery_status?: string;
+  learning_phase?: string;
+  delivery_issues?: string[];
 }
 
 // Aggregated summary for quick decision-making
@@ -334,6 +341,13 @@ function toCompactInsight(flat: FlatInsight, level: string): CompactInsight {
     results: flat.results,
     cost_per_result: flat.cost_per_result,
     result_type: flat.result_type,
+    // Include optional context fields if present
+    ...(flat.daily_budget !== undefined && { daily_budget: flat.daily_budget }),
+    ...(flat.budget_remaining !== undefined && { budget_remaining: flat.budget_remaining }),
+    ...(flat.budget_pct_used !== undefined && { budget_pct_used: flat.budget_pct_used }),
+    ...(flat.delivery_status && { delivery_status: flat.delivery_status }),
+    ...(flat.learning_phase && { learning_phase: flat.learning_phase }),
+    ...(flat.delivery_issues && { delivery_issues: flat.delivery_issues }),
   };
 }
 
