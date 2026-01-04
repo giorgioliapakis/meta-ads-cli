@@ -127,6 +127,30 @@ export interface AdCreative {
   call_to_action_type?: string;
 }
 
+export interface AdImage {
+  hash: string;
+  name?: string;
+  url?: string;
+  width?: number;
+  height?: number;
+  created_time?: string;
+  bytes?: number;
+}
+
+export interface AdVideo {
+  id: string;
+  title?: string;
+  source?: string;
+  picture?: string;
+  created_time?: string;
+  updated_time?: string;
+  length?: number;
+  status?: {
+    video_status?: string;
+    processing_progress?: number;
+  };
+}
+
 export interface Insights {
   account_id?: string;
   campaign_id?: string;

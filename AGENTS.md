@@ -17,6 +17,8 @@ This CLI aligns with the [Meta Marketing API](https://developers.facebook.com/do
 | `meta-ads adsets` | `/{ad_account_id}/adsets` |
 | `meta-ads ads` | `/{ad_account_id}/ads` |
 | `meta-ads adcreatives` | `/{ad_account_id}/adcreatives` |
+| `meta-ads adimages` | `/{ad_account_id}/adimages` |
+| `meta-ads advideos` | `/{ad_account_id}/advideos` |
 | `meta-ads insights` | `/{ad_account_id}/insights` |
 
 **Flag to API Parameter Mapping:**
@@ -132,6 +134,65 @@ meta-ads adsets create \
 |---------|-------------|---------|
 | `adcreatives list` | List all ad creatives | `meta-ads adcreatives list` |
 | `adcreatives get <id>` | Get ad creative details | `meta-ads adcreatives get 120510123456789` |
+| `adcreatives create` | Create ad creative | See below |
+
+**Create Ad Creative Examples:**
+```bash
+# Image creative
+meta-ads adcreatives create \
+  --name "Banner Ad" \
+  --page-id 123456789 \
+  --link https://example.com \
+  --image-hash abc123def456 \
+  --message "Check out our sale!" \
+  --cta SHOP_NOW
+
+# Video creative
+meta-ads adcreatives create \
+  --name "Video Ad" \
+  --page-id 123456789 \
+  --video-id 120510123456789 \
+  --title "New Product Launch" \
+  --message "Watch now" \
+  --link https://example.com \
+  --cta LEARN_MORE
+```
+
+**CTA Types:**
+`LEARN_MORE`, `SHOP_NOW`, `SIGN_UP`, `SUBSCRIBE`, `WATCH_MORE`, `APPLY_NOW`, `BOOK_NOW`, `CONTACT_US`, `DOWNLOAD`, `GET_OFFER`, `GET_QUOTE`, `ORDER_NOW`
+
+### adimages
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `adimages list` | List uploaded ad images | `meta-ads adimages list` |
+| `adimages upload <file>` | Upload image file | `meta-ads adimages upload ./banner.jpg --name "Q1 Banner"` |
+
+**Upload Image:**
+```bash
+# Upload returns image hash for use in adcreatives
+meta-ads adimages upload ./product.png --name "Product Shot"
+# Response includes: hash, url, width, height
+```
+
+### advideos
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `advideos list` | List uploaded ad videos | `meta-ads advideos list` |
+| `advideos get <id>` | Get video details/status | `meta-ads advideos get 120510123456789` |
+| `advideos upload` | Upload video | See below |
+
+**Upload Video:**
+```bash
+# From local file
+meta-ads advideos upload --file ./product-demo.mp4 --name "Product Demo"
+
+# From URL
+meta-ads advideos upload --url https://example.com/video.mp4 --name "Remote Video"
+```
+
+Note: Video processing may take time. Use `advideos get <id>` to check status.
 
 ### insights
 
@@ -257,12 +318,65 @@ meta-ads adsets create --campaign <NEW_ID> --name "..." --billing-event IMPRESSI
 ```
 
 ### Export data for analysis
+
 ```bash
 # Export all active campaigns
 meta-ads bulk export --type campaigns --status ACTIVE --output-file campaigns.json
 
 # Export performance data
 meta-ads insights get --level ad --date-preset last_30d > insights.json
+```
+
+### Create a new ad with uploaded creative
+
+```bash
+# 1. Upload image (returns hash)
+meta-ads adimages upload ./product.jpg --name "Product Image"
+# Response: { "hash": "abc123def456", "url": "...", ... }
+
+# 2. Create ad creative using the image hash
+meta-ads adcreatives create \
+  --name "Product Ad Creative" \
+  --page-id 123456789 \
+  --image-hash abc123def456 \
+  --link https://example.com/product \
+  --message "Check out our new product!" \
+  --cta SHOP_NOW
+# Response: { "id": "120510123456789", ... }
+
+# 3. Create ad using the creative
+meta-ads ads create \
+  --adset 120310123456789 \
+  --name "Product Ad" \
+  --creative-id 120510123456789
+```
+
+### Create a video ad
+
+```bash
+# 1. Upload video (from file or URL)
+meta-ads advideos upload --file ./demo.mp4 --name "Product Demo"
+# Response: { "id": "120610123456789", ... }
+
+# 2. Check video processing status
+meta-ads advideos get 120610123456789
+# Wait until status.video_status is "ready"
+
+# 3. Create video creative
+meta-ads adcreatives create \
+  --name "Video Ad Creative" \
+  --page-id 123456789 \
+  --video-id 120610123456789 \
+  --title "See It In Action" \
+  --message "Watch our product demo" \
+  --link https://example.com \
+  --cta LEARN_MORE
+
+# 4. Create ad with the creative
+meta-ads ads create \
+  --adset 120310123456789 \
+  --name "Video Ad" \
+  --creative-id <CREATIVE_ID>
 ```
 
 ---

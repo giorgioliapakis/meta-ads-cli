@@ -8,6 +8,8 @@ import type {
   AdSet,
   Ad,
   AdCreative,
+  AdImage,
+  AdVideo,
   Insights,
   MetaPaginatedResponse,
 } from '../../types/index.js';
@@ -360,5 +362,156 @@ export class MetaAdsClient {
       'thumbnail_url', 'object_story_spec', 'call_to_action_type',
     ];
     return this.request<AdCreative>(creativeId, { fields: (fields ?? defaultFields).join(',') });
+  }
+
+  // ============ Image Upload ============
+
+  async uploadImage(filePath: string, name?: string): Promise<AdImage> {
+    const accountId = this.getAccountId();
+    const url = `${GRAPH_URL}/${this.apiVersion}/${accountId}/adimages`;
+
+    const { readFile } = await import('node:fs/promises');
+    const { basename } = await import('node:path');
+
+    const fileBuffer = await readFile(filePath);
+    const fileName = name ?? basename(filePath);
+
+    const formData = new FormData();
+    formData.append('access_token', this.accessToken);
+    formData.append('filename', new Blob([fileBuffer]), fileName);
+
+    if (this.debug) {
+      console.error(`[debug] POST ${url} (uploading ${fileName})`);
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
+      });
+      const result = await response.json() as { images?: Record<string, AdImage>; error?: { message: string } };
+
+      if (result.error) {
+        throw { response: { error: result.error } };
+      }
+
+      // Response format: { images: { "filename": { hash, url, ... } } }
+      const images = result.images;
+      if (!images) {
+        throw new Error('No image data in response');
+      }
+      const imageData = Object.values(images)[0];
+      return imageData;
+    } catch (error) {
+      throw handleMetaApiError(error);
+    }
+  }
+
+  async listImages(options?: ListOptions): Promise<MetaPaginatedResponse<AdImage>> {
+    const accountId = this.getAccountId();
+    const fields = options?.fields ?? ['hash', 'name', 'url', 'width', 'height', 'created_time'];
+    const params: Record<string, string> = {
+      fields: fields.join(','),
+      limit: String(options?.limit ?? 25),
+    };
+    if (options?.after) params.after = options.after;
+
+    return this.request<MetaPaginatedResponse<AdImage>>(`${accountId}/adimages`, params);
+  }
+
+  // ============ Video Upload ============
+
+  async uploadVideo(params: { filePath?: string; fileUrl?: string; name: string }): Promise<AdVideo> {
+    const accountId = this.getAccountId();
+    const url = `${GRAPH_URL}/${this.apiVersion}/${accountId}/advideos`;
+
+    if (this.debug) {
+      console.error(`[debug] POST ${url} (uploading video: ${params.name})`);
+    }
+
+    try {
+      if (params.fileUrl) {
+        // Upload from URL
+        const body = new URLSearchParams();
+        body.set('access_token', this.accessToken);
+        body.set('file_url', params.fileUrl);
+        body.set('name', params.name);
+
+        const response = await fetch(url, { method: 'POST', body });
+        const result = await response.json() as AdVideo & { error?: { message: string } };
+
+        if (result.error) {
+          throw { response: { error: result.error } };
+        }
+        return result;
+      } else if (params.filePath) {
+        // Upload from file
+        const { readFile } = await import('node:fs/promises');
+        const fileBuffer = await readFile(params.filePath);
+
+        const formData = new FormData();
+        formData.append('access_token', this.accessToken);
+        formData.append('name', params.name);
+        formData.append('source', new Blob([fileBuffer]), params.name);
+
+        const response = await fetch(url, { method: 'POST', body: formData });
+        const result = await response.json() as AdVideo & { error?: { message: string } };
+
+        if (result.error) {
+          throw { response: { error: result.error } };
+        }
+        return result;
+      } else {
+        throw new Error('Either filePath or fileUrl is required');
+      }
+    } catch (error) {
+      throw handleMetaApiError(error);
+    }
+  }
+
+  async listVideos(options?: ListOptions): Promise<MetaPaginatedResponse<AdVideo>> {
+    const accountId = this.getAccountId();
+    const fields = options?.fields ?? ['id', 'title', 'source', 'picture', 'created_time', 'updated_time', 'length'];
+    const params: Record<string, string> = {
+      fields: fields.join(','),
+      limit: String(options?.limit ?? 25),
+    };
+    if (options?.after) params.after = options.after;
+
+    return this.request<MetaPaginatedResponse<AdVideo>>(`${accountId}/advideos`, params);
+  }
+
+  async getVideo(videoId: string, fields?: string[]): Promise<AdVideo> {
+    const defaultFields = ['id', 'title', 'source', 'picture', 'created_time', 'updated_time', 'length', 'status'];
+    return this.request<AdVideo>(videoId, { fields: (fields ?? defaultFields).join(',') });
+  }
+
+  // ============ Ad Creative Creation ============
+
+  async createCreative(params: {
+    name: string;
+    object_story_spec?: {
+      page_id: string;
+      link_data?: {
+        link: string;
+        message?: string;
+        image_hash?: string;
+        video_id?: string;
+        call_to_action?: { type: string; value?: { link?: string } };
+      };
+      video_data?: {
+        video_id: string;
+        image_hash?: string;
+        title?: string;
+        message?: string;
+        call_to_action?: { type: string; value?: { link?: string } };
+      };
+    };
+    asset_feed_spec?: Record<string, unknown>;
+    degrees_of_freedom_spec?: Record<string, unknown>;
+  }): Promise<AdCreative> {
+    const accountId = this.getAccountId();
+    const result = await this.post<{ id: string }>(`${accountId}/adcreatives`, params);
+    return this.getCreative(result.id);
   }
 }
