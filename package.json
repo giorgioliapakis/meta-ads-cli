@@ -53,6 +53,7 @@
     "cli-table3": "^0.6.5",
     "conf": "^13.0.1",
     "dayjs": "^1.11.13",
+    "dotenv": "^17.2.3",
     "facebook-nodejs-business-sdk": "^22.0.0",
     "p-retry": "^6.2.1"
   },

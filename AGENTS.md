@@ -241,8 +241,103 @@ These flags work on all commands:
 |------|-------|-------------|---------|
 | `--account` | `-a` | Override default account | `--account act_123` |
 | `--output` | `-o` | Output format (json/table) | `--output table` |
+| `--output-fields` | | Filter JSON output to specific fields | `--output-fields id,name,spend` |
 | `--verbose` | `-v` | Enable debug output | `-v` |
 | `--quiet` | `-q` | Suppress non-essential output | `-q` |
+
+---
+
+## Agent-Optimized Features
+
+These features reduce context/token usage while providing decision-ready data.
+
+### Insights Flags
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--flatten` | Flat structure, extract primary conversion metrics | `--flatten` |
+| `--compact` | Ultra-minimal: name, id, spend, results, cost_per_result | `--compact` |
+| `--summary` | Aggregated totals with best/worst performers | `--summary` |
+| `--sort-by <field>` | Sort results (cost metrics ascending, volume descending) | `--sort-by cost_per_result` |
+| `--min-spend N` | Filter: only entities with spend >= N | `--min-spend 10` |
+| `--min-impressions N` | Filter: only entities with impressions >= N | `--min-impressions 1000` |
+| `--min-results N` | Filter: only entities with results >= N | `--min-results 1` |
+| `--compare A:B` | Compare two periods, show change percentages | `--compare last_7d:last_14d` |
+
+### Ads List with Insights
+
+Fetch ads and their performance in one call:
+
+```bash
+meta-ads ads list --with-insights --date-preset last_7d --sort-by cost_per_result
+```
+
+### Auto-Pagination
+
+Fetch all results automatically:
+
+```bash
+meta-ads campaigns list --all
+meta-ads ads list --all
+```
+
+### Setting Thresholds by Account Scale
+
+Thresholds are user-defined, not opinionated. Set `--min-spend` based on your account's scale:
+
+| Monthly Spend | Suggested --min-spend | Rationale |
+|---------------|----------------------|-----------|
+| $1K/month | 5 | $5+ ads have meaningful data |
+| $10K/month | 25 | Need more spend for statistical significance |
+| $100K/month | 100 | Ignore anything under $100 |
+| $1M/month | 500 | Only look at significant performers |
+
+**Example - Small account ($1K/month):**
+```bash
+meta-ads insights get --level ad --date-preset last_7d --summary --min-spend 5
+```
+
+**Example - Large account ($100K/month):**
+```bash
+meta-ads insights get --level ad --date-preset last_7d --summary --min-spend 100 --min-results 5
+```
+
+### Quick Analysis Patterns
+
+**Get summary with statistically meaningful best/worst:**
+```bash
+meta-ads insights get --level ad --date-preset last_7d --summary --min-spend 10
+```
+
+**Top performers only (compact, sorted, filtered):**
+```bash
+meta-ads insights get --level ad --date-preset last_7d --compact --sort-by cost_per_result --min-results 1
+```
+
+**Compare performance across periods:**
+```bash
+meta-ads insights get --level campaign --compare last_7d:last_14d
+```
+
+**Minimal output for large result sets:**
+```bash
+meta-ads ads list --with-insights --date-preset last_7d --output-fields name,spend,cost_per_result
+```
+
+### Compare Output Format
+
+```json
+{
+  "current_period": { "start": "2025-01-01", "end": "2025-01-07" },
+  "previous_period": { "start": "2024-12-25", "end": "2024-12-31" },
+  "spend": { "current": 500, "previous": 450, "change_pct": 11.11 },
+  "results": { "current": 50, "previous": 40, "change_pct": 25 },
+  "cost_per_result": { "current": 10, "previous": 11.25, "change_pct": -11.11 },
+  "trend": "improving"
+}
+```
+
+`trend` values: `improving` (CPR down >10%), `declining` (CPR up >10%), `stable`
 
 ---
 

@@ -25,6 +25,7 @@ export interface ListOptions {
   limit?: number;
   after?: string;
   fields?: string[];
+  all?: boolean; // Auto-paginate to fetch all results
 }
 
 const GRAPH_URL = 'https://graph.facebook.com';
@@ -121,6 +122,26 @@ export class MetaAdsClient {
     }
   }
 
+  // ============ Auto-pagination Helper ============
+
+  private async autoPaginate<T>(
+    fetcher: (cursor?: string) => Promise<MetaPaginatedResponse<T>>,
+    maxPages: number = 100,
+  ): Promise<T[]> {
+    const allData: T[] = [];
+    let cursor: string | undefined;
+    let page = 0;
+
+    do {
+      const result = await fetcher(cursor);
+      allData.push(...result.data);
+      cursor = result.paging?.cursors?.after;
+      page++;
+    } while (cursor && page < maxPages);
+
+    return allData;
+  }
+
   // ============ Account Operations ============
 
   async listAccounts(options?: ListOptions): Promise<MetaPaginatedResponse<AdAccount>> {
@@ -152,14 +173,24 @@ export class MetaAdsClient {
       'id', 'name', 'status', 'effective_status', 'objective', 'created_time', 'updated_time',
       'daily_budget', 'lifetime_budget', 'budget_remaining',
     ];
-    const params: Record<string, string> = {
-      fields: fields.join(','),
-      limit: String(options?.limit ?? 25),
-    };
-    if (options?.after) params.after = options.after;
-    if (options?.status) params.filtering = JSON.stringify([{ field: 'status', operator: 'IN', value: [options.status] }]);
 
-    return this.request<MetaPaginatedResponse<Campaign>>(`${accountId}/campaigns`, params);
+    const fetchPage = async (cursor?: string): Promise<MetaPaginatedResponse<Campaign>> => {
+      const params: Record<string, string> = {
+        fields: fields.join(','),
+        limit: String(options?.limit ?? 25),
+      };
+      if (cursor) params.after = cursor;
+      else if (options?.after) params.after = options.after;
+      if (options?.status) params.filtering = JSON.stringify([{ field: 'status', operator: 'IN', value: [options.status] }]);
+      return this.request<MetaPaginatedResponse<Campaign>>(`${accountId}/campaigns`, params);
+    };
+
+    if (options?.all) {
+      const allData = await this.autoPaginate(fetchPage);
+      return { data: allData };
+    }
+
+    return fetchPage();
   }
 
   async getCampaign(campaignId: string, fields?: string[]): Promise<Campaign> {
@@ -206,15 +237,25 @@ export class MetaAdsClient {
       'id', 'name', 'campaign_id', 'status', 'effective_status', 'created_time', 'updated_time',
       'daily_budget', 'lifetime_budget', 'budget_remaining', 'billing_event', 'optimization_goal',
     ];
-    const params: Record<string, string> = {
-      fields: fields.join(','),
-      limit: String(options?.limit ?? 25),
-    };
-    if (options?.after) params.after = options.after;
-    if (options?.status) params.filtering = JSON.stringify([{ field: 'status', operator: 'IN', value: [options.status] }]);
-
     const endpoint = options?.campaignId ? `${options.campaignId}/adsets` : `${this.getAccountId()}/adsets`;
-    return this.request<MetaPaginatedResponse<AdSet>>(endpoint, params);
+
+    const fetchPage = async (cursor?: string): Promise<MetaPaginatedResponse<AdSet>> => {
+      const params: Record<string, string> = {
+        fields: fields.join(','),
+        limit: String(options?.limit ?? 25),
+      };
+      if (cursor) params.after = cursor;
+      else if (options?.after) params.after = options.after;
+      if (options?.status) params.filtering = JSON.stringify([{ field: 'status', operator: 'IN', value: [options.status] }]);
+      return this.request<MetaPaginatedResponse<AdSet>>(endpoint, params);
+    };
+
+    if (options?.all) {
+      const allData = await this.autoPaginate(fetchPage);
+      return { data: allData };
+    }
+
+    return fetchPage();
   }
 
   async getAdSet(adsetId: string, fields?: string[]): Promise<AdSet> {
@@ -263,12 +304,6 @@ export class MetaAdsClient {
       'id', 'name', 'adset_id', 'campaign_id', 'status', 'effective_status',
       'created_time', 'updated_time', 'preview_shareable_link',
     ];
-    const params: Record<string, string> = {
-      fields: fields.join(','),
-      limit: String(options?.limit ?? 25),
-    };
-    if (options?.after) params.after = options.after;
-    if (options?.status) params.filtering = JSON.stringify([{ field: 'status', operator: 'IN', value: [options.status] }]);
 
     let endpoint: string;
     if (options?.adsetId) {
@@ -278,7 +313,25 @@ export class MetaAdsClient {
     } else {
       endpoint = `${this.getAccountId()}/ads`;
     }
-    return this.request<MetaPaginatedResponse<Ad>>(endpoint, params);
+
+    const fetchPage = async (cursor?: string): Promise<MetaPaginatedResponse<Ad>> => {
+      const params: Record<string, string> = {
+        fields: fields.join(','),
+        limit: String(options?.limit ?? 25),
+      };
+      if (cursor) params.after = cursor;
+      else if (options?.after) params.after = options.after;
+      // Note: Ads API requires 'effective_status' not 'status' for filtering
+      if (options?.status) params.filtering = JSON.stringify([{ field: 'effective_status', operator: 'IN', value: [options.status] }]);
+      return this.request<MetaPaginatedResponse<Ad>>(endpoint, params);
+    };
+
+    if (options?.all) {
+      const allData = await this.autoPaginate(fetchPage);
+      return { data: allData };
+    }
+
+    return fetchPage();
   }
 
   async getAd(adId: string, fields?: string[]): Promise<Ad> {
@@ -323,10 +376,17 @@ export class MetaAdsClient {
     limit?: number;
   }): Promise<Insights[]> {
     const accountId = this.getAccountId();
-    const defaultFields = [
+    const baseFields = [
       'impressions', 'clicks', 'spend', 'reach', 'frequency', 'cpm', 'cpc', 'ctr',
       'actions', 'cost_per_action_type',
     ];
+    // Add entity ID/name fields based on level
+    const levelFields: Record<string, string[]> = {
+      campaign: ['campaign_id', 'campaign_name'],
+      adset: ['campaign_id', 'campaign_name', 'adset_id', 'adset_name'],
+      ad: ['campaign_id', 'campaign_name', 'adset_id', 'adset_name', 'ad_id', 'ad_name'],
+    };
+    const defaultFields = [...(levelFields[options.level] ?? []), ...baseFields];
     const params: Record<string, string> = {
       level: options.level,
       fields: (options.fields ?? defaultFields).join(','),

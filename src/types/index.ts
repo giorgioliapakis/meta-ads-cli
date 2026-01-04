@@ -154,10 +154,13 @@ export interface AdVideo {
 export interface Insights {
   account_id?: string;
   campaign_id?: string;
+  campaign_name?: string;
   adset_id?: string;
+  adset_name?: string;
   ad_id?: string;
-  date_start: string;
-  date_stop: string;
+  ad_name?: string;
+  date_start?: string;
+  date_stop?: string;
   impressions: string;
   clicks?: string;
   spend: string;

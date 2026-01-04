@@ -10,6 +10,7 @@ export default class List extends AuthenticatedCommand {
     '<%= config.bin %> campaigns list',
     '<%= config.bin %> campaigns list --status ACTIVE',
     '<%= config.bin %> campaigns list --limit 50 --output table',
+    '<%= config.bin %> campaigns list --all',
   ];
 
   static override flags = {
@@ -18,6 +19,7 @@ export default class List extends AuthenticatedCommand {
     limit: Flags.integer({ char: 'l', description: 'Maximum number of campaigns', default: 25 }),
     after: Flags.string({ description: 'Pagination cursor' }),
     fields: Flags.string({ description: 'Comma-separated fields to include' }),
+    all: Flags.boolean({ description: 'Fetch all pages automatically (ignores limit)', default: false }),
   };
 
   async run(): Promise<void> {
@@ -26,9 +28,10 @@ export default class List extends AuthenticatedCommand {
     await this.runWithAuth(this.toFlagValues(flags), async () => {
       const result = await this.client.listCampaigns({
         status: flags.status,
-        limit: flags.limit,
+        limit: flags.all ? 100 : flags.limit, // Use larger page size for --all
         after: flags.after,
         fields: flags.fields?.split(','),
+        all: flags.all,
       });
 
       const columns: TableColumn<Campaign>[] = [

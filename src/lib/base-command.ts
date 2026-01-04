@@ -30,20 +30,49 @@ export abstract class BaseCommand extends Command {
       description: 'Suppress non-essential output',
       default: false,
     }),
+    'output-fields': Flags.string({
+      description: 'Filter output to specific fields (comma-separated, e.g., id,name,spend)',
+    }),
   };
 
   protected formatter!: OutputFormatter;
   protected client!: MetaAdsClient;
+  protected outputFieldsFilter?: string[];
 
   /**
    * Initialize the formatter with parsed flags
    */
-  protected initFormatter(flags: { output?: string; verbose?: boolean; quiet?: boolean }): void {
+  protected initFormatter(flags: { output?: string; verbose?: boolean; quiet?: boolean; 'output-fields'?: string }): void {
     this.formatter = new OutputFormatter({
       format: (flags.output as 'json' | 'table') ?? 'json',
       verbose: flags.verbose,
       quiet: flags.quiet,
     });
+    if (flags['output-fields']) {
+      this.outputFieldsFilter = flags['output-fields'].split(',').map((f) => f.trim());
+    }
+  }
+
+  /**
+   * Filter object to only include specified fields
+   */
+  private filterFields<T>(data: T): T {
+    if (!this.outputFieldsFilter) return data;
+
+    const filter = (obj: Record<string, unknown>): Record<string, unknown> => {
+      const result: Record<string, unknown> = {};
+      for (const field of this.outputFieldsFilter!) {
+        if (field in obj) {
+          result[field] = obj[field];
+        }
+      }
+      return result;
+    };
+
+    if (Array.isArray(data)) {
+      return data.map((item) => filter(item as Record<string, unknown>)) as T;
+    }
+    return filter(data as Record<string, unknown>) as T;
   }
 
   /**
@@ -62,13 +91,15 @@ export abstract class BaseCommand extends Command {
     verbose?: boolean;
     quiet?: boolean;
     token?: string;
-  }): FlagValues {
+    'output-fields'?: string;
+  }): FlagValues & { 'output-fields'?: string } {
     return {
       account: flags.account,
       output: flags.output,
       verbose: flags.verbose,
       quiet: flags.quiet,
       token: flags.token,
+      'output-fields': flags['output-fields'],
     };
   }
 
@@ -76,7 +107,8 @@ export abstract class BaseCommand extends Command {
    * Output a success response
    */
   protected outputSuccess<T>(data: T, accountId?: string, columns?: TableColumn<T extends Array<infer U> ? U : T>[]): void {
-    const response = createSuccessResponse(data, accountId);
+    const filteredData = this.filterFields(data);
+    const response = createSuccessResponse(filteredData, accountId);
     this.formatter.output(response, columns as TableColumn<T>[]);
   }
 
@@ -117,7 +149,7 @@ export abstract class AuthenticatedCommand extends BaseCommand {
    * Run with authentication and error handling
    */
   protected async runWithAuth<T>(
-    flags: FlagValues & { output?: string; verbose?: boolean; quiet?: boolean },
+    flags: FlagValues & { output?: string; verbose?: boolean; quiet?: boolean; 'output-fields'?: string },
     fn: () => Promise<T>
   ): Promise<void> {
     try {

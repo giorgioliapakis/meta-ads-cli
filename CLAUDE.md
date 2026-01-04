@@ -73,3 +73,29 @@ CLI uses kebab-case flags, which map to API snake_case parameters:
 - `--daily-budget` → `daily_budget`
 - `--billing-event` → `billing_event`
 - `--date-preset` → `date_preset`
+
+## Agent-Optimized Commands
+
+Reduce context/tokens while getting decision-ready data:
+
+```bash
+# Summary with meaningful thresholds (set --min-spend based on account scale)
+meta-ads insights get --level ad --date-preset last_7d --summary --min-spend 10
+
+# Top performers only
+meta-ads insights get --level ad --date-preset last_7d --compact --sort-by cost_per_result --min-results 1
+
+# Compare periods
+meta-ads insights get --level campaign --compare last_7d:last_14d
+
+# Ads with insights in one call
+meta-ads ads list --with-insights --date-preset last_7d --sort-by cost_per_result
+
+# Filter output fields
+meta-ads ads list --with-insights --output-fields name,spend,cost_per_result
+
+# Fetch all (auto-paginate)
+meta-ads campaigns list --all
+```
+
+See `AGENTS.md` for threshold guidelines by account scale.
