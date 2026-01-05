@@ -2,6 +2,8 @@
 
 A command-line interface for managing Meta (Facebook/Instagram) Ads accounts. Designed for AI agents and automation workflows, with structured JSON output by default.
 
+> **Disclaimer:** This is an unofficial, community-maintained tool and is not affiliated with, endorsed by, or sponsored by Meta Platforms, Inc. "Meta", "Facebook", and "Instagram" are trademarks of Meta Platforms, Inc.
+
 ## Installation
 
 ```bash

@@ -36,3 +36,6 @@ yarn.lock
 pnpm-lock.yaml
 
 .conductor/
+
+CLAUDE.md
+brief.md
