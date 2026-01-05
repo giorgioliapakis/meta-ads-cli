@@ -95,6 +95,29 @@ export function calculatePreviousPeriod(currentPreset: string): { since: string;
  * - "last_7d:previous_7d" - last 7 days vs the 7 days before that
  * - "last_7d:last_14d" - (legacy, but overlaps - will warn)
  */
+/**
+ * Video fields for insights API
+ */
+export const VIDEO_FIELDS = [
+  'video_play_actions',
+  'video_thruplay_watched_actions',
+  'video_p25_watched_actions',
+  'video_p50_watched_actions',
+  'video_p75_watched_actions',
+  'video_p100_watched_actions',
+] as const;
+
+/**
+ * Extract value from video action array.
+ * Video actions are returned as arrays with a single object containing the total.
+ */
+export function getVideoActionValue(actions: { action_type: string; value: string }[] | undefined): number {
+  if (!actions || actions.length === 0) return 0;
+  // Video actions typically have action_type like "video_view" with the value
+  const total = actions.find((a) => a.action_type === 'video_view');
+  return total ? Number(total.value) : Number(actions[0]?.value ?? 0);
+}
+
 export function parseComparePresets(compareStr: string): {
   current: { preset?: string; dateRange?: { since: string; until: string } };
   previous: { preset?: string; dateRange?: { since: string; until: string } };

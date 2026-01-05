@@ -231,6 +231,20 @@ meta-ads insights get --level adset --date-preset last_30d --breakdowns age,gend
 
 **Entity Types:** `campaign`, `adset`, `ad` (for pause/activate) or `campaigns`, `adsets`, `ads` (for export)
 
+### schema
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `schema` | Show all available schema info | `meta-ads schema` |
+| `schema fields` | Show available fields | `meta-ads schema fields --level ad` |
+| `schema breakdowns` | Show available breakdowns | `meta-ads schema breakdowns` |
+| `schema date-presets` | Show available date presets | `meta-ads schema date-presets` |
+| `schema actions` | Show action types | `meta-ads schema actions` |
+| `schema objectives` | Show campaign objectives | `meta-ads schema objectives` |
+| `schema video-fields` | Show video-specific fields | `meta-ads schema video-fields` |
+
+**Schema Types:** `all`, `fields`, `breakdowns`, `date-presets`, `actions`, `objectives`, `video-fields`
+
 ---
 
 ## Global Flags
@@ -269,9 +283,14 @@ These features reduce context/token usage while providing decision-ready data.
 | `--with-budget` | Add budget context (at campaign/adset level only) | `--with-budget` |
 | `--include-delivery` | Add delivery status (delivery_status, learning_phase, delivery_issues) | `--include-delivery` |
 | `--include-objective` | Add campaign objective and objective-specific metrics | `--include-objective` |
+| `--include-hierarchy` | Add extended hierarchy context (campaign/adset status, optimization) | `--include-hierarchy` |
 | `--include-all-actions` | Include summary of all action types (purchases, leads, etc.) | `--include-all-actions` |
 | `--breakdowns-summary` | Summarize breakdowns: lowest/highest CPR per dimension (requires --breakdowns) | `--breakdowns-summary` |
 | `--compare A:B` | Compare two periods (use `previous_Xd` for non-overlapping) | `--compare last_7d:previous_7d` |
+| `--compare-entities` | Include per-entity deltas when using --compare | `--compare-entities` |
+| `--video-metrics` | Include video metrics (hook_rate, hold_rate) for video ads | `--video-metrics` |
+| `--extra-fields` | Additional API fields to request (comma-separated) | `--extra-fields video_p25_watched_actions` |
+| `--raw-fields` | Output raw API response without flattening | `--raw-fields` |
 | `--no-meta` | Output raw data without success/meta wrapper (reduces tokens) | `--no-meta` |
 
 ### Ads List with Insights
@@ -280,7 +299,21 @@ Fetch ads and their performance in one call:
 
 ```bash
 meta-ads ads list --with-insights --date-preset last_7d --sort-by cost_per_result
+
+# Include creative details for creative analysis
+meta-ads ads list --with-insights --date-preset last_7d --include-creative
 ```
+
+**Ads List Flags:**
+| Flag | Description |
+|------|-------------|
+| `--with-insights` | Include performance metrics |
+| `--date-preset` | Date preset for insights |
+| `--sort-by` | Sort by metric (spend, results, cost_per_result) |
+| `--min-spend` | Filter: minimum spend |
+| `--min-results` | Filter: minimum results |
+| `--include-creative` | Include creative details (headline, body, image/video URLs) |
+| `--all` | Fetch all pages |
 
 ### Auto-Pagination
 
@@ -521,6 +554,185 @@ Flatten output now includes funnel conversion rates:
 
 - `click_rate`: clicks / impressions (same as CTR)
 - `lpv_rate`: landing_page_views / clicks (percentage of clicks that reached landing page)
+
+### Video Metrics (--video-metrics)
+
+For video ad analysis, adds hook rate and hold rate metrics:
+
+```bash
+meta-ads insights get --level ad --date-preset last_7d --flatten --video-metrics
+```
+
+```json
+{
+  "ad_name": "Video Ad",
+  "impressions": 10000,
+  "video_plays": 4520,
+  "video_thruplays": 1288,
+  "hook_rate": 45.2,
+  "hold_rate": 28.5,
+  "spend": 150.00
+}
+```
+
+- `video_plays`: 3-second video views
+- `video_thruplays`: ThruPlay completions (15s or full video)
+- `hook_rate`: % of impressions that resulted in 3s view (thumb-stopper metric)
+- `hold_rate`: % of 3s viewers that watched thruplay (content quality metric)
+
+Video metrics are `null` for non-video ads.
+
+### Extended Hierarchy Context (--include-hierarchy)
+
+Adds parent entity context (campaign objectives, ad set optimization goals):
+
+```bash
+meta-ads insights get --level ad --date-preset last_7d --flatten --include-hierarchy
+```
+
+```json
+{
+  "ad_name": "Product Ad",
+  "adset_id": "120310123456789",
+  "adset_name": "Lookalike 1%",
+  "adset_optimization_goal": "CONVERSIONS",
+  "adset_billing_event": "IMPRESSIONS",
+  "adset_status": "ACTIVE",
+  "campaign_id": "120210123456789",
+  "campaign_name": "Summer Sale",
+  "campaign_objective": "OUTCOME_SALES",
+  "campaign_status": "ACTIVE",
+  "spend": 22.78
+}
+```
+
+Useful for understanding entity context without separate API calls.
+
+### Per-Entity Comparison (--compare-entities)
+
+When using `--compare`, add `--compare-entities` to get per-entity deltas:
+
+```bash
+meta-ads insights get --level ad --compare last_7d:previous_7d --compare-entities
+```
+
+```json
+{
+  "summary": {
+    "current_period": { "start": "2025-01-01", "end": "2025-01-07" },
+    "previous_period": { "start": "2024-12-25", "end": "2024-12-31" },
+    "spend": { "current": 1500, "previous": 1200, "change_pct": 25 },
+    "trend": "improving"
+  },
+  "entities": [
+    {
+      "id": "123456",
+      "name": "Ad 1",
+      "current": { "spend": 500, "results": 20, "cost_per_result": 25 },
+      "previous": { "spend": 400, "results": 15, "cost_per_result": 26.67 },
+      "delta": { "spend_pct": 25, "results_pct": 33.3, "cpr_pct": -6.3 }
+    }
+  ]
+}
+```
+
+Negative `cpr_pct` is good (cost went down).
+
+### Creative Context (--include-creative)
+
+On ads list, include creative details for creative analysis:
+
+```bash
+meta-ads ads list --with-insights --date-preset last_7d --include-creative
+```
+
+```json
+{
+  "id": "120410123456789",
+  "name": "Summer Sale Video",
+  "status": "ACTIVE",
+  "spend": 150.00,
+  "results": 8,
+  "cost_per_result": 18.75,
+  "creative": {
+    "id": "120510123456789",
+    "type": "video",
+    "headline": "50% Off Everything!",
+    "body": "Shop our biggest sale of the year. Limited time only.",
+    "cta_type": "SHOP_NOW",
+    "video_id": "120610123456789",
+    "thumbnail_url": "https://...",
+    "link": "https://example.com/sale"
+  }
+}
+```
+
+Creative `type` can be: `image`, `video`, `carousel`, `unknown`
+
+### Raw Field Access (--fields, --extra-fields, --raw-fields)
+
+For advanced use cases, request specific API fields directly:
+
+```bash
+# Add extra fields to default output
+meta-ads insights get --level ad --date-preset last_7d --flatten \
+  --extra-fields video_p25_watched_actions,video_p50_watched_actions
+
+# Request only specific fields (replace defaults)
+meta-ads insights get --level ad --date-preset last_7d \
+  --fields ad_id,ad_name,spend,actions --raw-fields
+
+# Raw output bypasses flattening
+meta-ads insights get --level ad --date-preset last_7d \
+  --fields ad_id,spend,actions --raw-fields
+```
+
+`--raw-fields` outputs the API response directly without processing.
+
+### Schema Discovery (meta-ads schema)
+
+Discover available API fields, breakdowns, date presets, and action types:
+
+```bash
+# Show all schema info
+meta-ads schema
+
+# Show fields for a specific level
+meta-ads schema fields --level ad
+
+# Show available breakdowns
+meta-ads schema breakdowns
+
+# Show date presets
+meta-ads schema date-presets
+
+# Show action types
+meta-ads schema actions
+
+# Show campaign objectives
+meta-ads schema objectives
+
+# Show video-specific fields
+meta-ads schema video-fields
+
+# Compact output (names only)
+meta-ads schema breakdowns --output compact
+```
+
+Example output for `meta-ads schema breakdowns`:
+```json
+{
+  "breakdowns": {
+    "available": [
+      { "name": "age", "category": "demographics", "description": "Age ranges (18-24, 25-34, ...)" },
+      { "name": "gender", "category": "demographics", "description": "Gender (male, female, unknown)" },
+      { "name": "country", "category": "geography", "description": "Country code (US, GB, CA, etc.)" },
+      { "name": "publisher_platform", "category": "placement", "description": "Platform: facebook, instagram, ..." }
+    ],
+    "usage": "Use --breakdowns age,gender to break down by multiple dimensions"
+  }
+}
+```
 
 ---
 

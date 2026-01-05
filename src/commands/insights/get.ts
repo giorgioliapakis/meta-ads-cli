@@ -7,6 +7,7 @@ import {
   DATE_PRESETS,
   OBJECTIVE_TO_ACTION,
   parseComparePresets,
+  getVideoActionValue,
 } from '../../lib/constants.js';
 
 interface FlatInsight {
@@ -17,8 +18,13 @@ interface FlatInsight {
   adset_name?: string;
   campaign_id?: string;
   campaign_name?: string;
-  // Campaign context (populated when available)
+  // Campaign context (populated by --include-objective or --include-hierarchy)
   campaign_objective?: string;
+  campaign_status?: string;
+  // Ad set context (populated by --include-hierarchy)
+  adset_optimization_goal?: string;
+  adset_billing_event?: string;
+  adset_status?: string;
   // Entity status (populated by --active-only)
   status?: string;
   // Budget context (populated by --with-budget at appropriate level)
@@ -62,6 +68,11 @@ interface FlatInsight {
   // Funnel conversion rates
   click_rate?: number;      // clicks / impressions (same as ctr, included for clarity)
   lpv_rate?: number;        // landing_page_views / clicks
+  // Video metrics (populated by --video-metrics)
+  hook_rate?: number | null;  // 3s video views / impressions (thumb-stopper rate)
+  hold_rate?: number | null;  // thruplay / 3s views (content quality rate)
+  video_plays?: number;       // 3-second video views
+  video_thruplays?: number;   // ThruPlay completions (15s or full)
   // Date range
   date_start: string;
   date_stop: string;
@@ -110,6 +121,39 @@ interface PeriodComparison {
   cost_per_result: { current: number | null; previous: number | null; change_pct: number | null };
   ctr: { current: number; previous: number; change_pct: number };
   trend: 'improving' | 'declining' | 'stable';
+}
+
+// Per-entity comparison for detailed trend analysis
+interface EntityComparison {
+  id: string;
+  name: string;
+  current: {
+    spend: number;
+    results: number;
+    cost_per_result: number | null;
+    impressions: number;
+    ctr: number;
+  };
+  previous: {
+    spend: number;
+    results: number;
+    cost_per_result: number | null;
+    impressions: number;
+    ctr: number;
+  };
+  delta: {
+    spend_pct: number;
+    results_pct: number;
+    cpr_pct: number | null;
+    impressions_pct: number;
+    ctr_pct: number;
+  };
+}
+
+// Full comparison output with optional per-entity breakdown
+interface CompareOutput {
+  summary: PeriodComparison;
+  entities?: EntityComparison[];
 }
 
 // Breakdowns summary for quick analysis
@@ -332,6 +376,73 @@ function generateComparison(current: FlatInsight[], previous: FlatInsight[]): Pe
   };
 }
 
+function generateEntityComparisons(
+  current: FlatInsight[],
+  previous: FlatInsight[],
+  level: string
+): EntityComparison[] {
+  const calcChange = (curr: number, prev: number): number => {
+    if (prev === 0) return curr > 0 ? 100 : 0;
+    return Math.round(((curr - prev) / prev) * 10000) / 100;
+  };
+
+  const getId = (f: FlatInsight) => f.ad_id ?? f.adset_id ?? f.campaign_id ?? '';
+  const getName = (f: FlatInsight) => {
+    if (level === 'ad') return f.ad_name ?? '';
+    if (level === 'adset') return f.adset_name ?? '';
+    if (level === 'campaign') return f.campaign_name ?? '';
+    return '';
+  };
+
+  // Build lookup map for previous period by entity ID
+  const prevMap = new Map<string, FlatInsight>();
+  for (const p of previous) {
+    const id = getId(p);
+    if (id) prevMap.set(id, p);
+  }
+
+  const entities: EntityComparison[] = [];
+
+  for (const curr of current) {
+    const id = getId(curr);
+    if (!id) continue;
+
+    const prev = prevMap.get(id);
+    const prevData = prev ?? { spend: 0, results: 0, cost_per_result: null, impressions: 0, ctr: 0 };
+
+    const currCPR = curr.cost_per_result;
+    const prevCPR = prev?.cost_per_result ?? null;
+
+    entities.push({
+      id,
+      name: getName(curr),
+      current: {
+        spend: Math.round(curr.spend * 100) / 100,
+        results: curr.results,
+        cost_per_result: currCPR !== null ? Math.round(currCPR * 100) / 100 : null,
+        impressions: curr.impressions,
+        ctr: Math.round(curr.ctr * 100) / 100,
+      },
+      previous: {
+        spend: Math.round(prevData.spend * 100) / 100,
+        results: prevData.results,
+        cost_per_result: prevCPR !== null ? Math.round(prevCPR * 100) / 100 : null,
+        impressions: prevData.impressions,
+        ctr: Math.round((prevData.ctr ?? 0) * 100) / 100,
+      },
+      delta: {
+        spend_pct: calcChange(curr.spend, prevData.spend),
+        results_pct: calcChange(curr.results, prevData.results),
+        cpr_pct: currCPR !== null && prevCPR !== null ? calcChange(currCPR, prevCPR) : null,
+        impressions_pct: calcChange(curr.impressions, prevData.impressions),
+        ctr_pct: calcChange(curr.ctr, prevData.ctr ?? 0),
+      },
+    });
+  }
+
+  return entities;
+}
+
 function toCompactInsight(flat: FlatInsight, level: string): CompactInsight {
   // Get appropriate name/id based on level
   let name = '';
@@ -386,6 +497,7 @@ function findCost(costs: { action_type: string; value: string }[], actionType: s
 
 interface FlattenOptions {
   includeAllActions?: boolean;
+  includeVideoMetrics?: boolean;
   campaignObjectives?: Map<string, string>;  // campaign_id -> objective
 }
 
@@ -484,6 +596,25 @@ function flattenInsight(insight: Insights, options?: FlattenOptions): FlatInsigh
     ) as FlatInsight['actions_summary'];
   }
 
+  // Add video metrics if requested
+  if (options?.includeVideoMetrics) {
+    const videoPlays = getVideoActionValue(insight.video_play_actions);
+    const videoThruplays = getVideoActionValue(insight.video_thruplay_watched_actions);
+
+    flat.video_plays = videoPlays;
+    flat.video_thruplays = videoThruplays;
+
+    // Hook rate: % of impressions that resulted in 3s video view (thumb-stopper metric)
+    flat.hook_rate = impressions > 0 && videoPlays > 0
+      ? Math.round((videoPlays / impressions) * 10000) / 100
+      : null;
+
+    // Hold rate: % of 3s viewers that watched thruplay (content quality metric)
+    flat.hold_rate = videoPlays > 0 && videoThruplays > 0
+      ? Math.round((videoThruplays / videoPlays) * 10000) / 100
+      : null;
+  }
+
   return flat;
 }
 
@@ -520,14 +651,21 @@ export default class Get extends AuthenticatedCommand {
     'with-budget': Flags.boolean({ description: 'Include budget context (daily_budget, budget_remaining, budget_pct_used)', default: false }),
     'include-delivery': Flags.boolean({ description: 'Include delivery status (delivery_status, learning_phase, delivery_issues)', default: false }),
     'include-objective': Flags.boolean({ description: 'Include campaign objective and objective-specific metrics', default: false }),
+    'include-hierarchy': Flags.boolean({ description: 'Include extended hierarchy context (campaign status, adset optimization)', default: false }),
     'include-all-actions': Flags.boolean({ description: 'Include summary of all action types (purchases, leads, etc.)', default: false }),
     compact: Flags.boolean({ description: 'Ultra-minimal output: name, spend, results, cost_per_result only', default: false }),
     summary: Flags.boolean({ description: 'Aggregated summary: totals, averages, lowest/highest CPR', default: false }),
     'breakdowns-summary': Flags.boolean({ description: 'Summarize breakdowns: lowest/highest CPR per dimension (requires --breakdowns)', default: false }),
     compare: Flags.string({ description: 'Compare periods (e.g., last_7d:previous_7d for non-overlapping comparison)' }),
+    'compare-entities': Flags.boolean({ description: 'Include per-entity deltas when using --compare', default: false }),
     // Token efficiency flags
     top: Flags.integer({ description: 'Return only top N results (by sort metric or CPR)', default: undefined }),
     bottom: Flags.integer({ description: 'Return only bottom N results (by sort metric or CPR)', default: undefined }),
+    // Video metrics
+    'video-metrics': Flags.boolean({ description: 'Include video metrics (hook_rate, hold_rate) for video ads', default: false }),
+    // Raw field access
+    'extra-fields': Flags.string({ description: 'Additional API fields to request (comma-separated)' }),
+    'raw-fields': Flags.boolean({ description: 'Output raw API response without flattening', default: false }),
   };
 
   async run(): Promise<void> {
@@ -563,7 +701,18 @@ export default class Get extends AuthenticatedCommand {
         const previousFlat = previousInsights.map((i) => flattenInsight(i));
 
         const comparison = generateComparison(currentFlat, previousFlat);
-        this.outputSuccess(comparison, this.client.getAccountId());
+
+        // Include per-entity comparisons if requested
+        if (flags['compare-entities']) {
+          const entities = generateEntityComparisons(currentFlat, previousFlat, flags.level);
+          const output: CompareOutput = {
+            summary: comparison,
+            entities,
+          };
+          this.outputSuccess(output, this.client.getAccountId());
+        } else {
+          this.outputSuccess(comparison, this.client.getAccountId());
+        }
         return;
       }
 
@@ -579,8 +728,16 @@ export default class Get extends AuthenticatedCommand {
         dateRange,
         breakdowns: flags.breakdowns?.split(','),
         fields: flags.fields?.split(','),
+        extraFields: flags['extra-fields']?.split(',').map((f) => f.trim()),
         limit: flags.limit,
+        includeVideoMetrics: flags['video-metrics'],
       });
+
+      // If --raw-fields, output API response directly without processing
+      if (flags['raw-fields']) {
+        this.outputSuccess(insights, this.client.getAccountId());
+        return;
+      }
 
       // Handle breakdowns summary mode
       if (flags['breakdowns-summary']) {
@@ -593,10 +750,11 @@ export default class Get extends AuthenticatedCommand {
         return;
       }
 
-      if (flags.flatten || flags.compact || flags.summary) {
+      if (flags.flatten || flags.compact || flags.summary || flags['video-metrics']) {
         // Build flatten options
         const flattenOptions: FlattenOptions = {
           includeAllActions: flags['include-all-actions'],
+          includeVideoMetrics: flags['video-metrics'],
         };
 
         // Fetch campaign objectives if requested
@@ -638,6 +796,51 @@ export default class Get extends AuthenticatedCommand {
               return { ...f, status: id ? statusMap.get(id) : undefined };
             })
             .filter((f) => f.status === 'ACTIVE');
+        }
+
+        // Fetch extended hierarchy context if requested
+        if (flags['include-hierarchy'] && flags.level !== 'account') {
+          // Fetch campaigns for objective and status
+          const campaigns = await this.client.listCampaigns({ limit: 100, all: true });
+          const campaignMap = new Map<string, { objective: string; status: string }>();
+          for (const campaign of campaigns.data) {
+            campaignMap.set(campaign.id, {
+              objective: campaign.objective,
+              status: campaign.effective_status,
+            });
+          }
+
+          // Fetch adsets for optimization goal and billing event (only if level is adset or ad)
+          let adsetMap = new Map<string, { optimization_goal: string; billing_event: string; status: string }>();
+          if (flags.level === 'adset' || flags.level === 'ad') {
+            const adsets = await this.client.listAdSets({ limit: 100, all: true });
+            for (const adset of adsets.data) {
+              adsetMap.set(adset.id, {
+                optimization_goal: adset.optimization_goal,
+                billing_event: adset.billing_event,
+                status: adset.effective_status,
+              });
+            }
+          }
+
+          // Enrich flattened data with hierarchy context
+          flattened = flattened.map((f) => {
+            const campaignData = f.campaign_id ? campaignMap.get(f.campaign_id) : undefined;
+            const adsetData = f.adset_id ? adsetMap.get(f.adset_id) : undefined;
+
+            return {
+              ...f,
+              ...(campaignData && {
+                campaign_objective: campaignData.objective,
+                campaign_status: campaignData.status,
+              }),
+              ...(adsetData && {
+                adset_optimization_goal: adsetData.optimization_goal,
+                adset_billing_event: adsetData.billing_event,
+                adset_status: adsetData.status,
+              }),
+            };
+          });
         }
 
         // Fetch budget context if requested

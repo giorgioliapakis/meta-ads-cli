@@ -1,6 +1,6 @@
 import { Flags } from '@oclif/core';
 import { AuthenticatedCommand, BaseCommand } from '../../lib/base-command.js';
-import type { Ad, Insights } from '../../types/index.js';
+import type { Ad, Insights, AdCreative, ProcessedCreative } from '../../types/index.js';
 import type { TableColumn } from '../../lib/output/formatter.js';
 import { CONVERSION_ACTIONS, DATE_PRESETS } from '../../lib/constants.js';
 
@@ -17,6 +17,59 @@ interface AdWithInsights {
   result_type: string;
   cost_per_result: number | null;
   ctr: number;
+  // Creative context (optional)
+  creative?: ProcessedCreative;
+}
+
+/**
+ * Process raw creative data into normalized format for agent consumption
+ */
+function processCreative(raw: AdCreative | undefined): ProcessedCreative | undefined {
+  if (!raw) return undefined;
+
+  // Determine creative type
+  let type: ProcessedCreative['type'] = 'unknown';
+  if (raw.video_id) {
+    type = 'video';
+  } else if (raw.image_url || raw.image_hash) {
+    type = 'image';
+  }
+  // Note: Carousel detection would need asset_feed_spec which requires additional fields
+
+  // Extract text content from various possible locations
+  const oss = raw.object_story_spec;
+  const linkData = oss?.link_data;
+  const videoData = oss?.video_data;
+
+  // Get headline (can be in title, link_data.name, or video_data.title)
+  const headline = raw.title || linkData?.name || videoData?.title;
+
+  // Get body text (can be in body, link_data.message, or video_data.message)
+  const body = raw.body || linkData?.message || videoData?.message;
+
+  // Get description (link_data.description)
+  const description = linkData?.description;
+
+  // Get CTA type
+  const ctaType = raw.call_to_action_type ||
+    linkData?.call_to_action?.type ||
+    videoData?.call_to_action?.type;
+
+  // Get video ID (can be in multiple places)
+  const videoId = raw.video_id || linkData?.video_id || videoData?.video_id;
+
+  return {
+    id: raw.id,
+    type,
+    ...(headline && { headline }),
+    ...(body && { body }),
+    ...(description && { description }),
+    ...(ctaType && { cta_type: ctaType }),
+    ...(raw.image_url && { image_url: raw.image_url }),
+    ...(videoId && { video_id: videoId }),
+    ...(raw.thumbnail_url && { thumbnail_url: raw.thumbnail_url }),
+    ...(linkData?.link && { link: linkData.link }),
+  };
 }
 
 function mergeAdWithInsights(ad: Ad, insightsMap: Map<string, Insights>): AdWithInsights {
@@ -93,6 +146,7 @@ export default class List extends AuthenticatedCommand {
     'min-spend': Flags.integer({ description: 'Filter: minimum spend amount' }),
     'min-results': Flags.integer({ description: 'Filter: minimum results/conversions' }),
     all: Flags.boolean({ description: 'Fetch all pages automatically (ignores limit)', default: false }),
+    'include-creative': Flags.boolean({ description: 'Include creative details (headline, body, image/video URLs)', default: false }),
   };
 
   async run(): Promise<void> {
@@ -106,6 +160,7 @@ export default class List extends AuthenticatedCommand {
         limit: flags.all ? 100 : flags.limit,
         after: flags.after,
         all: flags.all,
+        includeCreative: flags['include-creative'],
       });
 
       if (flags['with-insights']) {
@@ -126,6 +181,15 @@ export default class List extends AuthenticatedCommand {
 
         // Merge ads with insights
         let merged = result.data.map((ad) => mergeAdWithInsights(ad, insightsMap));
+
+        // Add creative context if requested
+        if (flags['include-creative']) {
+          merged = merged.map((m, i) => {
+            const ad = result.data[i];
+            const creative = processCreative(ad.creative);
+            return creative ? { ...m, creative } : m;
+          });
+        }
 
         // Apply filters
         if (flags['min-spend'] !== undefined) {

@@ -140,8 +140,41 @@ export interface AdCreative {
   image_url?: string;
   video_id?: string;
   thumbnail_url?: string;
-  object_story_spec?: Record<string, unknown>;
+  object_story_spec?: {
+    page_id?: string;
+    link_data?: {
+      link?: string;
+      message?: string;
+      name?: string;        // headline
+      description?: string; // description/body
+      image_hash?: string;
+      video_id?: string;
+      call_to_action?: { type: string };
+    };
+    video_data?: {
+      video_id?: string;
+      title?: string;
+      message?: string;
+      image_hash?: string;
+      call_to_action?: { type: string };
+    };
+  };
   call_to_action_type?: string;
+  effective_object_story_id?: string;
+}
+
+// Normalized creative data for agent consumption
+export interface ProcessedCreative {
+  id: string;
+  type: 'image' | 'video' | 'carousel' | 'unknown';
+  headline?: string;
+  body?: string;
+  description?: string;
+  cta_type?: string;
+  image_url?: string;
+  video_id?: string;
+  thumbnail_url?: string;
+  link?: string;
 }
 
 export interface AdImage {
@@ -189,6 +222,13 @@ export interface Insights {
   cpp?: string;
   actions?: InsightAction[];
   cost_per_action_type?: InsightAction[];
+  // Video metrics
+  video_play_actions?: InsightAction[];
+  video_thruplay_watched_actions?: InsightAction[];
+  video_p25_watched_actions?: InsightAction[];
+  video_p50_watched_actions?: InsightAction[];
+  video_p75_watched_actions?: InsightAction[];
+  video_p100_watched_actions?: InsightAction[];
 }
 
 export interface InsightAction {

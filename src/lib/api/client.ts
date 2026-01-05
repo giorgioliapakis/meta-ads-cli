@@ -301,13 +301,17 @@ export class MetaAdsClient {
 
   // ============ Ad Operations ============
 
-  async listAds(options?: ListOptions & { adsetId?: string; campaignId?: string; status?: string; includeDelivery?: boolean }): Promise<MetaPaginatedResponse<Ad>> {
+  async listAds(options?: ListOptions & { adsetId?: string; campaignId?: string; status?: string; includeDelivery?: boolean; includeCreative?: boolean }): Promise<MetaPaginatedResponse<Ad>> {
     const baseFields = [
       'id', 'name', 'adset_id', 'campaign_id', 'status', 'effective_status',
       'created_time', 'updated_time', 'preview_shareable_link',
     ];
     const deliveryFields = options?.includeDelivery ? ['issues_info'] : [];
-    const fields = options?.fields ?? [...baseFields, ...deliveryFields];
+    // Request creative with nested fields for full creative data
+    const creativeFields = options?.includeCreative
+      ? ['creative{id,name,title,body,image_url,video_id,thumbnail_url,call_to_action_type,object_story_spec}']
+      : [];
+    const fields = options?.fields ?? [...baseFields, ...deliveryFields, ...creativeFields];
 
     let endpoint: string;
     if (options?.adsetId) {
@@ -376,8 +380,10 @@ export class MetaAdsClient {
     datePreset?: string;
     dateRange?: { start: string; end: string } | { since: string; until: string };
     fields?: string[];
+    extraFields?: string[];
     breakdowns?: string[];
     limit?: number;
+    includeVideoMetrics?: boolean;
   }): Promise<Insights[]> {
     const accountId = this.getAccountId();
     const baseFields = [
@@ -390,10 +396,30 @@ export class MetaAdsClient {
       adset: ['campaign_id', 'campaign_name', 'adset_id', 'adset_name'],
       ad: ['campaign_id', 'campaign_name', 'adset_id', 'adset_name', 'ad_id', 'ad_name'],
     };
-    const defaultFields = [...(levelFields[options.level] ?? []), ...baseFields];
+
+    // Build fields list
+    let fieldsToRequest: string[];
+    if (options.fields) {
+      // Custom fields specified - use directly
+      fieldsToRequest = options.fields;
+    } else {
+      // Use defaults
+      fieldsToRequest = [...(levelFields[options.level] ?? []), ...baseFields];
+    }
+
+    // Add video fields if requested
+    if (options.includeVideoMetrics) {
+      fieldsToRequest.push('video_play_actions', 'video_thruplay_watched_actions');
+    }
+
+    // Add extra fields if specified
+    if (options.extraFields) {
+      fieldsToRequest.push(...options.extraFields);
+    }
+
     const params: Record<string, string> = {
       level: options.level,
-      fields: (options.fields ?? defaultFields).join(','),
+      fields: fieldsToRequest.join(','),
     };
     if (options.datePreset) params.date_preset = options.datePreset;
     if (options.dateRange) {
