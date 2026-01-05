@@ -257,17 +257,22 @@ These features reduce context/token usage while providing decision-ready data.
 |------|-------------|---------|
 | `--flatten` | Flat structure, extract primary conversion metrics | `--flatten` |
 | `--compact` | Ultra-minimal: name, id, spend, results, cost_per_result | `--compact` |
-| `--summary` | Aggregated totals with best/worst performers | `--summary` |
+| `--summary` | Aggregated totals with lowest/highest CPR | `--summary` |
 | `--sort-by <field>` | Sort results (cost metrics ascending, volume descending) | `--sort-by cost_per_result` |
+| `--top N` | Return only top N results (by sort metric or CPR) | `--top 5` |
+| `--bottom N` | Return only bottom N results (by sort metric or CPR) | `--bottom 3` |
 | `--min-spend N` | Filter: only entities with spend >= N | `--min-spend 10` |
 | `--min-impressions N` | Filter: only entities with impressions >= N | `--min-impressions 1000` |
 | `--min-results N` | Filter: only entities with results >= N | `--min-results 1` |
 | `--active-only` | Filter: only show active entities | `--active-only` |
 | `--result-type` | Filter by result type (lead, purchase, link_click) | `--result-type lead` |
-| `--with-budget` | Add budget context (daily_budget, budget_remaining, budget_pct_used) | `--with-budget` |
+| `--with-budget` | Add budget context (at campaign/adset level only) | `--with-budget` |
 | `--include-delivery` | Add delivery status (delivery_status, learning_phase, delivery_issues) | `--include-delivery` |
-| `--breakdowns-summary` | Summarize breakdowns: best/worst per dimension (requires --breakdowns) | `--breakdowns-summary` |
-| `--compare A:B` | Compare two periods, show change percentages | `--compare last_7d:last_14d` |
+| `--include-objective` | Add campaign objective and objective-specific metrics | `--include-objective` |
+| `--include-all-actions` | Include summary of all action types (purchases, leads, etc.) | `--include-all-actions` |
+| `--breakdowns-summary` | Summarize breakdowns: lowest/highest CPR per dimension (requires --breakdowns) | `--breakdowns-summary` |
+| `--compare A:B` | Compare two periods (use `previous_Xd` for non-overlapping) | `--compare last_7d:previous_7d` |
+| `--no-meta` | Output raw data without success/meta wrapper (reduces tokens) | `--no-meta` |
 
 ### Ads List with Insights
 
@@ -283,6 +288,7 @@ Fetch all results automatically:
 
 ```bash
 meta-ads campaigns list --all
+meta-ads adsets list --all
 meta-ads ads list --all
 ```
 
@@ -309,19 +315,19 @@ meta-ads insights get --level ad --date-preset last_7d --summary --min-spend 100
 
 ### Quick Analysis Patterns
 
-**Get summary with statistically meaningful best/worst:**
+**Get summary with lowest/highest CPR:**
 ```bash
 meta-ads insights get --level ad --date-preset last_7d --summary --min-spend 10
 ```
 
-**Top performers only (compact, sorted, filtered):**
+**Top 5 and bottom 3 performers (token efficient):**
 ```bash
-meta-ads insights get --level ad --date-preset last_7d --compact --sort-by cost_per_result --min-results 1
+meta-ads insights get --level ad --date-preset last_7d --flatten --top 5 --bottom 3
 ```
 
-**Compare performance across periods:**
+**Compare performance across non-overlapping periods:**
 ```bash
-meta-ads insights get --level campaign --compare last_7d:last_14d
+meta-ads insights get --level campaign --compare last_7d:previous_7d
 ```
 
 **Minimal output for large result sets:**
@@ -329,9 +335,9 @@ meta-ads insights get --level campaign --compare last_7d:last_14d
 meta-ads ads list --with-insights --date-preset last_7d --output-fields name,spend,cost_per_result
 ```
 
-**Active ads with budget context:**
+**Active ads at campaign level with budget context:**
 ```bash
-meta-ads insights get --level ad --date-preset last_7d --flatten --active-only --with-budget --compact
+meta-ads insights get --level campaign --date-preset last_7d --flatten --active-only --with-budget
 ```
 
 **Find delivery issues:**
@@ -339,12 +345,30 @@ meta-ads insights get --level ad --date-preset last_7d --flatten --active-only -
 meta-ads insights get --level ad --date-preset last_7d --flatten --include-delivery --min-spend 5
 ```
 
-**Best/worst performing audiences:**
+**Lowest/highest CPR per demographic:**
 ```bash
 meta-ads insights get --level ad --date-preset last_7d --breakdowns age,gender --breakdowns-summary
 ```
 
+**Include campaign objective context:**
+```bash
+meta-ads insights get --level ad --date-preset last_7d --flatten --include-objective
+```
+
+**Raw data without wrapper (reduces tokens):**
+```bash
+meta-ads insights get --level ad --date-preset last_7d --compact --no-meta
+```
+
 ### Compare Output Format
+
+Use `previous_Xd` for non-overlapping comparison (recommended):
+```bash
+# last_7d vs the 7 days before that (no overlap)
+meta-ads insights get --level campaign --compare last_7d:previous_7d
+```
+
+Using `last_7d:last_14d` will warn about overlap since last_14d includes last_7d.
 
 ```json
 {
@@ -361,22 +385,26 @@ meta-ads insights get --level ad --date-preset last_7d --breakdowns age,gender -
 
 ### Budget Context Output (--with-budget)
 
-Adds budget data to each insight row:
+Adds budget data at the appropriate level (campaign or adset). Budget is NOT duplicated at ad level to reduce token usage.
 
 ```bash
-meta-ads insights get --level ad --date-preset last_7d --flatten --with-budget --compact
+# Budget at campaign level
+meta-ads insights get --level campaign --date-preset last_7d --flatten --with-budget
+
+# Budget at adset level
+meta-ads insights get --level adset --date-preset last_7d --flatten --with-budget
 ```
 
 ```json
 {
-  "name": "Product Ad",
-  "id": "120410123456789",
-  "spend": 22.78,
-  "results": 2,
-  "cost_per_result": 11.39,
+  "name": "Campaign Name",
+  "id": "120210123456789",
+  "spend": 98.32,
+  "results": 22,
+  "cost_per_result": 4.47,
   "daily_budget": 50,
-  "budget_remaining": 40.77,
-  "budget_pct_used": 18
+  "budget_remaining": 40.32,
+  "budget_pct_used": 19
 }
 ```
 
@@ -402,7 +430,7 @@ meta-ads insights get --level ad --date-preset last_7d --flatten --include-deliv
 
 ### Breakdowns Summary Output (--breakdowns-summary)
 
-Summarizes breakdowns by best/worst performer per dimension:
+Summarizes breakdowns by lowest/highest CPR per dimension:
 
 ```bash
 meta-ads insights get --level ad --date-preset last_7d --breakdowns age,gender --breakdowns-summary
@@ -427,6 +455,72 @@ meta-ads insights get --level ad --date-preset last_7d --breakdowns age,gender -
   "totals": { "spend": 41.79, "results": 12, "cost_per_result": 3.48 }
 }
 ```
+
+### Campaign Objective Context (--include-objective)
+
+Adds campaign objective and objective-specific metrics. Useful for understanding what conversion type the campaign is optimizing for:
+
+```bash
+meta-ads insights get --level ad --date-preset last_7d --flatten --include-objective
+```
+
+```json
+{
+  "ad_name": "Product Ad",
+  "campaign_id": "120210123456789",
+  "campaign_objective": "OUTCOME_LEADS",
+  "spend": 22.78,
+  "results": 2,
+  "result_type": "lead",
+  "cost_per_result": 11.39,
+  "objective_result_type": "lead",
+  "objective_results": 2,
+  "objective_cost_per_result": 11.39
+}
+```
+
+This helps agents interpret metrics in context - a high CPR might be expected for a TOF awareness campaign vs a BOF conversion campaign.
+
+### All Actions Summary (--include-all-actions)
+
+Includes a summary of all action types found, useful for full-funnel analysis:
+
+```bash
+meta-ads insights get --level ad --date-preset last_7d --flatten --include-all-actions
+```
+
+```json
+{
+  "ad_name": "Product Ad",
+  "spend": 22.78,
+  "results": 2,
+  "result_type": "lead",
+  "cost_per_result": 11.39,
+  "actions_summary": {
+    "leads": 2,
+    "link_clicks": 15,
+    "landing_page_views": 8
+  }
+}
+```
+
+### Funnel Metrics
+
+Flatten output now includes funnel conversion rates:
+
+```json
+{
+  "impressions": 2097,
+  "clicks": 69,
+  "click_rate": 3.29,
+  "landing_page_views": 20,
+  "lpv_rate": 28.99,
+  "results": 22
+}
+```
+
+- `click_rate`: clicks / impressions (same as CTR)
+- `lpv_rate`: landing_page_views / clicks (percentage of clicks that reached landing page)
 
 ---
 

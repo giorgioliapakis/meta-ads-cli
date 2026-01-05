@@ -374,7 +374,7 @@ export class MetaAdsClient {
   async getInsights(options: {
     level: 'account' | 'campaign' | 'adset' | 'ad';
     datePreset?: string;
-    dateRange?: { start: string; end: string };
+    dateRange?: { start: string; end: string } | { since: string; until: string };
     fields?: string[];
     breakdowns?: string[];
     limit?: number;
@@ -396,7 +396,13 @@ export class MetaAdsClient {
       fields: (options.fields ?? defaultFields).join(','),
     };
     if (options.datePreset) params.date_preset = options.datePreset;
-    if (options.dateRange) params.time_range = JSON.stringify({ since: options.dateRange.start, until: options.dateRange.end });
+    if (options.dateRange) {
+      // Support both { start, end } and { since, until } formats
+      const range = 'since' in options.dateRange
+        ? options.dateRange
+        : { since: options.dateRange.start, until: options.dateRange.end };
+      params.time_range = JSON.stringify(range);
+    }
     if (options.breakdowns) params.breakdowns = options.breakdowns.join(',');
     if (options.limit) params.limit = String(options.limit);
 

@@ -10,6 +10,7 @@ export default class List extends AuthenticatedCommand {
     '<%= config.bin %> adsets list',
     '<%= config.bin %> adsets list --campaign 120210123456789',
     '<%= config.bin %> adsets list --status ACTIVE',
+    '<%= config.bin %> adsets list --all',
   ];
 
   static override flags = {
@@ -18,6 +19,7 @@ export default class List extends AuthenticatedCommand {
     status: Flags.string({ char: 's', description: 'Filter by status', options: ['ACTIVE', 'PAUSED', 'DELETED', 'ARCHIVED'] }),
     limit: Flags.integer({ char: 'l', description: 'Maximum number of ad sets', default: 25 }),
     after: Flags.string({ description: 'Pagination cursor' }),
+    all: Flags.boolean({ description: 'Fetch all pages automatically (ignores limit)', default: false }),
   };
 
   async run(): Promise<void> {
@@ -27,8 +29,9 @@ export default class List extends AuthenticatedCommand {
       const result = await this.client.listAdSets({
         campaignId: flags.campaign,
         status: flags.status,
-        limit: flags.limit,
+        limit: flags.all ? 100 : flags.limit,
         after: flags.after,
+        all: flags.all,
       });
 
       const columns: TableColumn<AdSet>[] = [

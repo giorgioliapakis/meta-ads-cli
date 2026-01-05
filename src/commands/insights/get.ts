@@ -2,20 +2,12 @@ import { Flags } from '@oclif/core';
 import { AuthenticatedCommand, BaseCommand } from '../../lib/base-command.js';
 import type { Insights } from '../../types/index.js';
 import type { TableColumn } from '../../lib/output/formatter.js';
-
-const DATE_PRESETS = [
-  'today', 'yesterday', 'this_month', 'last_month', 'this_quarter',
-  'maximum', 'data_maximum', 'last_3d', 'last_7d', 'last_14d',
-  'last_28d', 'last_30d', 'last_90d', 'last_week_mon_sun',
-  'last_week_sun_sat', 'last_quarter', 'last_year', 'this_week_mon_today',
-  'this_week_sun_today', 'this_year',
-];
-
-// Key conversion actions we care about (in priority order)
-const CONVERSION_ACTIONS = [
-  'purchase', 'lead', 'complete_registration', 'subscribe', 'add_to_cart',
-  'initiate_checkout', 'app_install', 'link_click', 'landing_page_view',
-];
+import {
+  CONVERSION_ACTIONS,
+  DATE_PRESETS,
+  OBJECTIVE_TO_ACTION,
+  parseComparePresets,
+} from '../../lib/constants.js';
 
 interface FlatInsight {
   // Identity
@@ -25,9 +17,11 @@ interface FlatInsight {
   adset_name?: string;
   campaign_id?: string;
   campaign_name?: string;
+  // Campaign context (populated when available)
+  campaign_objective?: string;
   // Entity status (populated by --active-only)
   status?: string;
-  // Budget context (populated by --with-budget)
+  // Budget context (populated by --with-budget at appropriate level)
   daily_budget?: number;
   budget_remaining?: number;
   budget_pct_used?: number;
@@ -43,13 +37,31 @@ interface FlatInsight {
   ctr: number;
   cpc: number;
   cpm: number;
-  // Results (primary conversion)
+  // Primary objective results (based on campaign objective)
+  objective_result_type?: string;
+  objective_results?: number;
+  objective_cost_per_result?: number | null;
+  // Results (highest priority conversion found)
   results: number;
   result_type: string;
   cost_per_result: number | null;
-  // Secondary metrics
+  // All actions summary (populated by --include-all-actions)
+  actions_summary?: {
+    purchases?: number;
+    leads?: number;
+    complete_registrations?: number;
+    add_to_carts?: number;
+    initiate_checkouts?: number;
+    app_installs?: number;
+    link_clicks?: number;
+    landing_page_views?: number;
+  };
+  // Secondary metrics (always included for funnel analysis)
   link_clicks: number;
   landing_page_views: number;
+  // Funnel conversion rates
+  click_rate?: number;      // clicks / impressions (same as ctr, included for clarity)
+  lpv_rate?: number;        // landing_page_views / clicks
   // Date range
   date_start: string;
   date_stop: string;
@@ -81,8 +93,9 @@ interface InsightsSummary {
   avg_ctr: number;
   entity_count: number;
   with_results_count: number;
-  best_performer: { name: string; id: string; cost_per_result: number } | null;
-  worst_performer: { name: string; id: string; cost_per_result: number } | null;
+  // Neutral naming - lowest/highest CPR instead of best/worst
+  lowest_cpr: { name: string; id: string; cost_per_result: number } | null;
+  highest_cpr: { name: string; id: string; cost_per_result: number } | null;
   date_start: string;
   date_stop: string;
 }
@@ -131,16 +144,16 @@ function generateSummary(flattened: FlatInsight[], level: string): InsightsSumma
   const totalImpressions = flattened.reduce((sum, f) => sum + f.impressions, 0);
   const totalClicks = flattened.reduce((sum, f) => sum + f.clicks, 0);
 
-  // Find best/worst performers (only those with results and cost_per_result)
+  // Find lowest/highest CPR (only those with results and cost_per_result)
   const withResults = flattened.filter((f) => f.results > 0 && f.cost_per_result !== null);
 
-  let bestPerformer: InsightsSummary['best_performer'] = null;
-  let worstPerformer: InsightsSummary['worst_performer'] = null;
+  let lowestCpr: InsightsSummary['lowest_cpr'] = null;
+  let highestCpr: InsightsSummary['highest_cpr'] = null;
 
   if (withResults.length > 0) {
     const sorted = [...withResults].sort((a, b) => (a.cost_per_result as number) - (b.cost_per_result as number));
-    const best = sorted[0];
-    const worst = sorted[sorted.length - 1];
+    const lowest = sorted[0];
+    const highest = sorted[sorted.length - 1];
 
     const getName = (f: FlatInsight) => {
       if (level === 'ad') return { name: f.ad_name ?? '', id: f.ad_id ?? '' };
@@ -149,8 +162,8 @@ function generateSummary(flattened: FlatInsight[], level: string): InsightsSumma
       return { name: '', id: '' };
     };
 
-    bestPerformer = { ...getName(best), cost_per_result: best.cost_per_result as number };
-    worstPerformer = { ...getName(worst), cost_per_result: worst.cost_per_result as number };
+    lowestCpr = { ...getName(lowest), cost_per_result: lowest.cost_per_result as number };
+    highestCpr = { ...getName(highest), cost_per_result: highest.cost_per_result as number };
   }
 
   return {
@@ -161,8 +174,8 @@ function generateSummary(flattened: FlatInsight[], level: string): InsightsSumma
     avg_ctr: totalImpressions > 0 ? Math.round((totalClicks / totalImpressions) * 10000) / 100 : 0,
     entity_count: flattened.length,
     with_results_count: withResults.length,
-    best_performer: bestPerformer,
-    worst_performer: worstPerformer,
+    lowest_cpr: lowestCpr,
+    highest_cpr: highestCpr,
     date_start: flattened[0]?.date_start ?? '',
     date_stop: flattened[0]?.date_stop ?? '',
   };
@@ -351,7 +364,32 @@ function toCompactInsight(flat: FlatInsight, level: string): CompactInsight {
   };
 }
 
-function flattenInsight(insight: Insights): FlatInsight {
+// Helper to find action by type (supports qualified names)
+function findAction(actions: { action_type: string; value: string }[], actionType: string): number {
+  const action = actions.find((a) =>
+    a.action_type === actionType ||
+    a.action_type === `offsite_conversion.fb_pixel_${actionType}` ||
+    a.action_type === `onsite_web_${actionType}`
+  );
+  return action ? Number(action.value) : 0;
+}
+
+// Helper to find cost by action type
+function findCost(costs: { action_type: string; value: string }[], actionType: string): number | null {
+  const cost = costs.find((c) =>
+    c.action_type === actionType ||
+    c.action_type === `offsite_conversion.fb_pixel_${actionType}` ||
+    c.action_type === `onsite_web_${actionType}`
+  );
+  return cost ? Number(cost.value) : null;
+}
+
+interface FlattenOptions {
+  includeAllActions?: boolean;
+  campaignObjectives?: Map<string, string>;  // campaign_id -> objective
+}
+
+function flattenInsight(insight: Insights, options?: FlattenOptions): FlatInsight {
   const actions = insight.actions ?? [];
   const costs = insight.cost_per_action_type ?? [];
 
@@ -361,29 +399,27 @@ function flattenInsight(insight: Insights): FlatInsight {
   let costPerResult: number | null = null;
 
   for (const actionType of CONVERSION_ACTIONS) {
-    const action = actions.find((a) =>
-      a.action_type === actionType ||
-      a.action_type === `offsite_conversion.fb_pixel_${actionType}` ||
-      a.action_type === `onsite_web_${actionType}`
-    );
-    if (action) {
+    const actionResults = findAction(actions, actionType);
+    if (actionResults > 0) {
       resultType = actionType;
-      results = Number(action.value);
-      const cost = costs.find((c) =>
-        c.action_type === actionType ||
-        c.action_type === `offsite_conversion.fb_pixel_${actionType}` ||
-        c.action_type === `onsite_web_${actionType}`
-      );
-      costPerResult = cost ? Number(cost.value) : null;
+      results = actionResults;
+      costPerResult = findCost(costs, actionType);
       break;
     }
   }
 
   // Extract specific metrics we care about
-  const linkClicks = Number(actions.find((a) => a.action_type === 'link_click')?.value ?? 0);
-  const landingPageViews = Number(actions.find((a) => a.action_type === 'landing_page_view')?.value ?? 0);
+  const linkClicks = findAction(actions, 'link_click');
+  const landingPageViews = findAction(actions, 'landing_page_view');
+  const impressions = Number(insight.impressions ?? 0);
+  const clicks = Number(insight.clicks ?? 0);
 
-  return {
+  // Calculate funnel rates
+  const clickRate = impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0;
+  const lpvRate = clicks > 0 ? Math.round((landingPageViews / clicks) * 10000) / 100 : 0;
+
+  // Build base insight
+  const flat: FlatInsight = {
     // Identity (only include if present)
     ...(insight.ad_id && { ad_id: insight.ad_id }),
     ...(insight.ad_name && { ad_name: insight.ad_name }),
@@ -393,23 +429,62 @@ function flattenInsight(insight: Insights): FlatInsight {
     ...(insight.campaign_name && { campaign_name: insight.campaign_name }),
     // Core metrics
     spend: Number(insight.spend ?? 0),
-    impressions: Number(insight.impressions ?? 0),
+    impressions,
     reach: Number(insight.reach ?? 0),
-    clicks: Number(insight.clicks ?? 0),
+    clicks,
     ctr: Number(insight.ctr ?? 0),
     cpc: Number(insight.cpc ?? 0),
     cpm: Number(insight.cpm ?? 0),
-    // Results
+    // Results (highest priority found)
     results,
     result_type: resultType,
     cost_per_result: costPerResult,
-    // Secondary
+    // Secondary metrics
     link_clicks: linkClicks,
     landing_page_views: landingPageViews,
+    // Funnel rates
+    click_rate: clickRate,
+    lpv_rate: lpvRate,
     // Dates
     date_start: insight.date_start ?? '',
     date_stop: insight.date_stop ?? '',
   };
+
+  // Add campaign objective context if available
+  if (options?.campaignObjectives && insight.campaign_id) {
+    const objective = options.campaignObjectives.get(insight.campaign_id);
+    if (objective) {
+      flat.campaign_objective = objective;
+
+      // Calculate objective-specific results
+      const objectiveActionType = OBJECTIVE_TO_ACTION[objective];
+      if (objectiveActionType) {
+        flat.objective_result_type = objectiveActionType;
+        flat.objective_results = findAction(actions, objectiveActionType);
+        flat.objective_cost_per_result = findCost(costs, objectiveActionType);
+      }
+    }
+  }
+
+  // Add all actions summary if requested
+  if (options?.includeAllActions) {
+    flat.actions_summary = {
+      purchases: findAction(actions, 'purchase') || undefined,
+      leads: findAction(actions, 'lead') || undefined,
+      complete_registrations: findAction(actions, 'complete_registration') || undefined,
+      add_to_carts: findAction(actions, 'add_to_cart') || undefined,
+      initiate_checkouts: findAction(actions, 'initiate_checkout') || undefined,
+      app_installs: findAction(actions, 'app_install') || undefined,
+      link_clicks: linkClicks || undefined,
+      landing_page_views: landingPageViews || undefined,
+    };
+    // Remove undefined values
+    flat.actions_summary = Object.fromEntries(
+      Object.entries(flat.actions_summary).filter(([, v]) => v !== undefined)
+    ) as FlatInsight['actions_summary'];
+  }
+
+  return flat;
 }
 
 export default class Get extends AuthenticatedCommand {
@@ -429,7 +504,7 @@ export default class Get extends AuthenticatedCommand {
   static override flags = {
     ...BaseCommand.baseFlags,
     level: Flags.string({ description: 'Aggregation level', required: true, options: ['account', 'campaign', 'adset', 'ad'] }),
-    'date-preset': Flags.string({ description: 'Date preset', options: DATE_PRESETS }),
+    'date-preset': Flags.string({ description: 'Date preset', options: [...DATE_PRESETS] }),
     'date-range': Flags.string({ description: 'Date range (YYYY-MM-DD:YYYY-MM-DD)' }),
     breakdowns: Flags.string({ description: 'Comma-separated breakdowns (age, gender, country, etc.)' }),
     fields: Flags.string({ description: 'Comma-separated metrics to include' }),
@@ -444,10 +519,15 @@ export default class Get extends AuthenticatedCommand {
     'result-type': Flags.string({ description: 'Filter by result type (lead, purchase, link_click, etc.)' }),
     'with-budget': Flags.boolean({ description: 'Include budget context (daily_budget, budget_remaining, budget_pct_used)', default: false }),
     'include-delivery': Flags.boolean({ description: 'Include delivery status (delivery_status, learning_phase, delivery_issues)', default: false }),
+    'include-objective': Flags.boolean({ description: 'Include campaign objective and objective-specific metrics', default: false }),
+    'include-all-actions': Flags.boolean({ description: 'Include summary of all action types (purchases, leads, etc.)', default: false }),
     compact: Flags.boolean({ description: 'Ultra-minimal output: name, spend, results, cost_per_result only', default: false }),
-    summary: Flags.boolean({ description: 'Aggregated summary: totals, averages, best/worst performers', default: false }),
-    'breakdowns-summary': Flags.boolean({ description: 'Summarize breakdowns: best/worst performer per dimension (requires --breakdowns)', default: false }),
-    compare: Flags.string({ description: 'Compare periods (e.g., last_7d:previous_7d or this_week:last_week)' }),
+    summary: Flags.boolean({ description: 'Aggregated summary: totals, averages, lowest/highest CPR', default: false }),
+    'breakdowns-summary': Flags.boolean({ description: 'Summarize breakdowns: lowest/highest CPR per dimension (requires --breakdowns)', default: false }),
+    compare: Flags.string({ description: 'Compare periods (e.g., last_7d:previous_7d for non-overlapping comparison)' }),
+    // Token efficiency flags
+    top: Flags.integer({ description: 'Return only top N results (by sort metric or CPR)', default: undefined }),
+    bottom: Flags.integer({ description: 'Return only bottom N results (by sort metric or CPR)', default: undefined }),
   };
 
   async run(): Promise<void> {
@@ -456,27 +536,31 @@ export default class Get extends AuthenticatedCommand {
     await this.runWithAuth(this.toFlagValues(flags), async () => {
       // Handle period comparison
       if (flags.compare) {
-        const [currentPreset, previousPreset] = flags.compare.split(':');
-        if (!currentPreset || !previousPreset) {
-          throw new Error('Compare format must be "current_preset:previous_preset" (e.g., last_7d:previous_7d)');
+        const parsed = parseComparePresets(flags.compare);
+
+        // Log warning if periods overlap
+        if (parsed.warning && !flags.quiet) {
+          console.error(parsed.warning);
         }
 
-        // Fetch both periods
+        // Fetch both periods - use date range for previous if calculated
         const [currentInsights, previousInsights] = await Promise.all([
           this.client.getInsights({
             level: flags.level as 'account' | 'campaign' | 'adset' | 'ad',
-            datePreset: currentPreset,
+            datePreset: parsed.current.preset,
+            dateRange: parsed.current.dateRange,
             limit: flags.limit,
           }),
           this.client.getInsights({
             level: flags.level as 'account' | 'campaign' | 'adset' | 'ad',
-            datePreset: previousPreset,
+            datePreset: parsed.previous.preset,
+            dateRange: parsed.previous.dateRange,
             limit: flags.limit,
           }),
         ]);
 
-        const currentFlat = currentInsights.map(flattenInsight);
-        const previousFlat = previousInsights.map(flattenInsight);
+        const currentFlat = currentInsights.map((i) => flattenInsight(i));
+        const previousFlat = previousInsights.map((i) => flattenInsight(i));
 
         const comparison = generateComparison(currentFlat, previousFlat);
         this.outputSuccess(comparison, this.client.getAccountId());
@@ -510,7 +594,21 @@ export default class Get extends AuthenticatedCommand {
       }
 
       if (flags.flatten || flags.compact || flags.summary) {
-        let flattened = insights.map(flattenInsight);
+        // Build flatten options
+        const flattenOptions: FlattenOptions = {
+          includeAllActions: flags['include-all-actions'],
+        };
+
+        // Fetch campaign objectives if requested
+        if (flags['include-objective']) {
+          const campaigns = await this.client.listCampaigns({ limit: 100, all: true });
+          flattenOptions.campaignObjectives = new Map<string, string>();
+          for (const campaign of campaigns.data) {
+            flattenOptions.campaignObjectives.set(campaign.id, campaign.objective);
+          }
+        }
+
+        let flattened = insights.map((i) => flattenInsight(i, flattenOptions));
 
         // Fetch entity statuses if --active-only is set
         if (flags['active-only'] && flags.level !== 'account') {
@@ -543,36 +641,70 @@ export default class Get extends AuthenticatedCommand {
         }
 
         // Fetch budget context if requested
+        // Note: Budget is added at campaign level only to avoid duplication
         if (flags['with-budget']) {
-          // Budgets are typically at campaign level
-          const campaigns = await this.client.listCampaigns({ limit: 100, all: true });
-          const budgetMap = new Map<string, { daily_budget: number; budget_remaining: number }>();
+          if (flags.level === 'campaign') {
+            // At campaign level, add budget directly from campaign data
+            const campaigns = await this.client.listCampaigns({ limit: 100, all: true });
+            const budgetMap = new Map<string, { daily_budget: number; budget_remaining: number }>();
 
-          for (const campaign of campaigns.data) {
-            if (campaign.daily_budget || campaign.lifetime_budget) {
-              budgetMap.set(campaign.id, {
-                daily_budget: Number(campaign.daily_budget ?? campaign.lifetime_budget ?? 0) / 100, // Convert cents to dollars
-                budget_remaining: Number(campaign.budget_remaining ?? 0) / 100,
-              });
+            for (const campaign of campaigns.data) {
+              if (campaign.daily_budget || campaign.lifetime_budget) {
+                budgetMap.set(campaign.id, {
+                  daily_budget: Number(campaign.daily_budget ?? campaign.lifetime_budget ?? 0) / 100,
+                  budget_remaining: Number(campaign.budget_remaining ?? 0) / 100,
+                });
+              }
             }
+
+            flattened = flattened.map((f) => {
+              const budget = f.campaign_id ? budgetMap.get(f.campaign_id) : undefined;
+              if (budget) {
+                const pctUsed = budget.daily_budget > 0
+                  ? Math.round(((budget.daily_budget - budget.budget_remaining) / budget.daily_budget) * 100)
+                  : 0;
+                return {
+                  ...f,
+                  daily_budget: budget.daily_budget,
+                  budget_remaining: budget.budget_remaining,
+                  budget_pct_used: pctUsed,
+                };
+              }
+              return f;
+            });
+          } else if (flags.level === 'adset') {
+            // At ad set level, fetch ad set budgets
+            const adsets = await this.client.listAdSets({ limit: 100, all: true });
+            const budgetMap = new Map<string, { daily_budget: number; budget_remaining: number }>();
+
+            for (const adset of adsets.data) {
+              if (adset.daily_budget || adset.lifetime_budget) {
+                budgetMap.set(adset.id, {
+                  daily_budget: Number(adset.daily_budget ?? adset.lifetime_budget ?? 0) / 100,
+                  budget_remaining: Number(adset.budget_remaining ?? 0) / 100,
+                });
+              }
+            }
+
+            flattened = flattened.map((f) => {
+              const budget = f.adset_id ? budgetMap.get(f.adset_id) : undefined;
+              if (budget) {
+                const pctUsed = budget.daily_budget > 0
+                  ? Math.round(((budget.daily_budget - budget.budget_remaining) / budget.daily_budget) * 100)
+                  : 0;
+                return {
+                  ...f,
+                  daily_budget: budget.daily_budget,
+                  budget_remaining: budget.budget_remaining,
+                  budget_pct_used: pctUsed,
+                };
+              }
+              return f;
+            });
           }
-
-          // Add budget info to each insight
-          flattened = flattened.map((f) => {
-            const budget = f.campaign_id ? budgetMap.get(f.campaign_id) : undefined;
-            if (budget) {
-              const pctUsed = budget.daily_budget > 0
-                ? Math.round(((budget.daily_budget - budget.budget_remaining) / budget.daily_budget) * 100)
-                : 0;
-              return {
-                ...f,
-                daily_budget: budget.daily_budget,
-                budget_remaining: budget.budget_remaining,
-                budget_pct_used: pctUsed,
-              };
-            }
-            return f;
-          });
+          // Note: Budget at ad level is inherited from ad set/campaign
+          // To avoid duplication, we don't add budget fields at ad level
+          // Users should query at adset level for budget info
         }
 
         // Fetch delivery status if requested
@@ -657,14 +789,15 @@ export default class Get extends AuthenticatedCommand {
           flattened = flattened.filter((f) => f.result_type === flags['result-type']);
         }
 
-        // Sort if requested
-        if (flags['sort-by']) {
-          const sortKey = flags['sort-by'] as keyof FlatInsight;
+        // Sort if requested (or default sort by CPR if using --top/--bottom)
+        const needsSort = flags['sort-by'] || flags.top || flags.bottom;
+        if (needsSort) {
+          const sortKey = (flags['sort-by'] ?? 'cost_per_result') as keyof FlatInsight;
           flattened = flattened.sort((a, b) => {
             const aVal = a[sortKey];
             const bVal = b[sortKey];
             // For cost metrics, lower is better (ascending), nulls go to end
-            if (sortKey === 'cost_per_result' || sortKey === 'cpc' || sortKey === 'cpm') {
+            if (sortKey === 'cost_per_result' || sortKey === 'cpc' || sortKey === 'cpm' || sortKey === 'objective_cost_per_result') {
               if (aVal === null && bVal === null) return 0;
               if (aVal === null) return 1;  // a goes after b
               if (bVal === null) return -1; // b goes after a
@@ -673,6 +806,26 @@ export default class Get extends AuthenticatedCommand {
             // For volume metrics, higher is better (descending)
             return ((bVal as number) ?? 0) - ((aVal as number) ?? 0);
           });
+        }
+
+        // Apply --top and --bottom filters for token efficiency
+        if (flags.top !== undefined || flags.bottom !== undefined) {
+          const topN = flags.top ?? 0;
+          const bottomN = flags.bottom ?? 0;
+
+          if (topN > 0 && bottomN > 0) {
+            // Get both top and bottom
+            const top = flattened.slice(0, topN);
+            const bottom = flattened.slice(-bottomN);
+            // Combine, removing duplicates if overlap
+            const bottomIds = new Set(bottom.map((f) => f.ad_id ?? f.adset_id ?? f.campaign_id));
+            const combined = [...top.filter((f) => !bottomIds.has(f.ad_id ?? f.adset_id ?? f.campaign_id)), ...bottom];
+            flattened = combined;
+          } else if (topN > 0) {
+            flattened = flattened.slice(0, topN);
+          } else if (bottomN > 0) {
+            flattened = flattened.slice(-bottomN);
+          }
         }
 
         // Output based on mode

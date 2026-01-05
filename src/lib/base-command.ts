@@ -33,16 +33,21 @@ export abstract class BaseCommand extends Command {
     'output-fields': Flags.string({
       description: 'Filter output to specific fields (comma-separated, e.g., id,name,spend)',
     }),
+    'no-meta': Flags.boolean({
+      description: 'Output raw data without success/meta wrapper (reduces tokens)',
+      default: false,
+    }),
   };
 
   protected formatter!: OutputFormatter;
   protected client!: MetaAdsClient;
   protected outputFieldsFilter?: string[];
+  protected noMetaWrapper?: boolean;
 
   /**
    * Initialize the formatter with parsed flags
    */
-  protected initFormatter(flags: { output?: string; verbose?: boolean; quiet?: boolean; 'output-fields'?: string }): void {
+  protected initFormatter(flags: { output?: string; verbose?: boolean; quiet?: boolean; 'output-fields'?: string; 'no-meta'?: boolean }): void {
     this.formatter = new OutputFormatter({
       format: (flags.output as 'json' | 'table') ?? 'json',
       verbose: flags.verbose,
@@ -51,6 +56,7 @@ export abstract class BaseCommand extends Command {
     if (flags['output-fields']) {
       this.outputFieldsFilter = flags['output-fields'].split(',').map((f) => f.trim());
     }
+    this.noMetaWrapper = flags['no-meta'];
   }
 
   /**
@@ -92,7 +98,8 @@ export abstract class BaseCommand extends Command {
     quiet?: boolean;
     token?: string;
     'output-fields'?: string;
-  }): FlagValues & { 'output-fields'?: string } {
+    'no-meta'?: boolean;
+  }): FlagValues & { 'output-fields'?: string; 'no-meta'?: boolean } {
     return {
       account: flags.account,
       output: flags.output,
@@ -100,6 +107,7 @@ export abstract class BaseCommand extends Command {
       quiet: flags.quiet,
       token: flags.token,
       'output-fields': flags['output-fields'],
+      'no-meta': flags['no-meta'],
     };
   }
 
@@ -108,6 +116,13 @@ export abstract class BaseCommand extends Command {
    */
   protected outputSuccess<T>(data: T, accountId?: string, columns?: TableColumn<T extends Array<infer U> ? U : T>[]): void {
     const filteredData = this.filterFields(data);
+
+    // If --no-meta flag is set, output raw data without wrapper
+    if (this.noMetaWrapper) {
+      console.log(JSON.stringify(filteredData, null, 2));
+      return;
+    }
+
     const response = createSuccessResponse(filteredData, accountId);
     this.formatter.output(response, columns as TableColumn<T>[]);
   }
@@ -149,7 +164,7 @@ export abstract class AuthenticatedCommand extends BaseCommand {
    * Run with authentication and error handling
    */
   protected async runWithAuth<T>(
-    flags: FlagValues & { output?: string; verbose?: boolean; quiet?: boolean; 'output-fields'?: string },
+    flags: FlagValues & { output?: string; verbose?: boolean; quiet?: boolean; 'output-fields'?: string; 'no-meta'?: boolean },
     fn: () => Promise<T>
   ): Promise<void> {
     try {

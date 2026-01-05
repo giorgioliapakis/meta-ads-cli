@@ -2,14 +2,7 @@ import { Flags } from '@oclif/core';
 import { AuthenticatedCommand, BaseCommand } from '../../lib/base-command.js';
 import type { Ad, Insights } from '../../types/index.js';
 import type { TableColumn } from '../../lib/output/formatter.js';
-
-const DATE_PRESETS = [
-  'today', 'yesterday', 'this_month', 'last_month', 'this_quarter',
-  'maximum', 'data_maximum', 'last_3d', 'last_7d', 'last_14d',
-  'last_28d', 'last_30d', 'last_90d', 'last_week_mon_sun',
-  'last_week_sun_sat', 'last_quarter', 'last_year', 'this_week_mon_today',
-  'this_week_sun_today', 'this_year',
-];
+import { CONVERSION_ACTIONS, DATE_PRESETS } from '../../lib/constants.js';
 
 // Combined ad + insights for agent-friendly output
 interface AdWithInsights {
@@ -25,12 +18,6 @@ interface AdWithInsights {
   cost_per_result: number | null;
   ctr: number;
 }
-
-// Key conversion actions (same as insights/get.ts)
-const CONVERSION_ACTIONS = [
-  'purchase', 'lead', 'complete_registration', 'subscribe', 'add_to_cart',
-  'initiate_checkout', 'app_install', 'link_click', 'landing_page_view',
-];
 
 function mergeAdWithInsights(ad: Ad, insightsMap: Map<string, Insights>): AdWithInsights {
   const insight = insightsMap.get(ad.id);
@@ -101,7 +88,7 @@ export default class List extends AuthenticatedCommand {
     after: Flags.string({ description: 'Pagination cursor' }),
     // Agent-optimized flags
     'with-insights': Flags.boolean({ description: 'Include performance metrics (requires --date-preset)', default: false }),
-    'date-preset': Flags.string({ description: 'Date preset for insights', options: DATE_PRESETS }),
+    'date-preset': Flags.string({ description: 'Date preset for insights', options: [...DATE_PRESETS] }),
     'sort-by': Flags.string({ description: 'Sort by metric (spend, results, cost_per_result, impressions)' }),
     'min-spend': Flags.integer({ description: 'Filter: minimum spend amount' }),
     'min-results': Flags.integer({ description: 'Filter: minimum results/conversions' }),
