@@ -59,6 +59,20 @@ export default class Schema extends Command {
     const { args, flags } = await this.parse(Schema);
     const type = args.type as string;
 
+    // If --enum-name is provided, only show that enum
+    if (flags['enum-name']) {
+      const values = getEnumValues(flags['enum-name']);
+      if (values) {
+        console.log(JSON.stringify({ [flags['enum-name']]: [...values] }, null, 2));
+      } else {
+        console.log(JSON.stringify({
+          error: `Unknown enum: ${flags['enum-name']}`,
+          available: getAvailableEnums(),
+        }, null, 2));
+      }
+      return;
+    }
+
     const output: Record<string, unknown> = {};
 
     if (type === 'all' || type === 'fields') {

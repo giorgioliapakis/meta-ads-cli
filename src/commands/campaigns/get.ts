@@ -34,7 +34,10 @@ export default class Get extends AuthenticatedCommand {
     const { args, flags } = await this.parse(Get);
 
     await this.runWithAuth(this.toFlagValues(flags), async () => {
-      const campaign = await this.client.getCampaign(args.campaign_id, flags.fields?.split(','));
+      const campaign = await this.client.getCampaign(args.campaign_id, {
+        fields: flags.fields?.split(','),
+        full: flags.full,
+      });
 
       // Build result with optional nested entities
       const result: CampaignWithChildren = { ...campaign };

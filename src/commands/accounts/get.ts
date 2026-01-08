@@ -16,7 +16,7 @@ export default class Get extends AuthenticatedCommand {
     const { args, flags } = await this.parse(Get);
 
     await this.runWithAuth(flags, async () => {
-      const account = await this.client.getAccount(args.account_id);
+      const account = await this.client.getAccount(args.account_id, { full: flags.full });
       this.outputSuccess(account, args.account_id);
     });
   }

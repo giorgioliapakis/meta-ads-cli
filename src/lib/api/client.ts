@@ -27,9 +27,38 @@ export interface ListOptions {
   after?: string;
   fields?: string[];
   all?: boolean; // Auto-paginate to fetch all results
+  full?: boolean; // Include all fields (default: minimal for agent efficiency)
 }
 
 const GRAPH_URL = 'https://graph.facebook.com';
+
+/**
+ * Field sets for each entity type
+ * Minimal fields are agent-optimized (6-8 fields)
+ * Full fields include all available data
+ */
+const ENTITY_FIELDS = {
+  account: {
+    minimal: ['id', 'name', 'account_status', 'currency', 'amount_spent'],
+    full: ['id', 'account_id', 'name', 'account_status', 'amount_spent', 'balance', 'currency', 'spend_cap', 'business_name', 'business_city', 'business_country_code'],
+  },
+  campaign: {
+    minimal: ['id', 'name', 'status', 'effective_status', 'objective', 'daily_budget'],
+    full: ['id', 'name', 'status', 'effective_status', 'objective', 'created_time', 'updated_time', 'daily_budget', 'lifetime_budget', 'budget_remaining', 'start_time', 'stop_time', 'special_ad_categories'],
+  },
+  adset: {
+    minimal: ['id', 'name', 'status', 'effective_status', 'campaign_id', 'daily_budget', 'optimization_goal'],
+    full: ['id', 'name', 'campaign_id', 'status', 'effective_status', 'created_time', 'updated_time', 'start_time', 'end_time', 'daily_budget', 'lifetime_budget', 'budget_remaining', 'billing_event', 'optimization_goal', 'bid_strategy', 'bid_amount', 'targeting'],
+  },
+  ad: {
+    minimal: ['id', 'name', 'status', 'effective_status', 'adset_id', 'campaign_id'],
+    full: ['id', 'name', 'adset_id', 'campaign_id', 'status', 'effective_status', 'created_time', 'updated_time', 'creative', 'preview_shareable_link'],
+  },
+  creative: {
+    minimal: ['id', 'name', 'title', 'body', 'call_to_action_type'],
+    full: ['id', 'name', 'title', 'body', 'image_hash', 'image_url', 'video_id', 'thumbnail_url', 'call_to_action_type', 'object_story_spec'],
+  },
+};
 
 export class MetaAdsClient {
   private accessToken: string;
@@ -198,9 +227,8 @@ export class MetaAdsClient {
   // ============ Account Operations ============
 
   async listAccounts(options?: ListOptions): Promise<MetaPaginatedResponse<AdAccount>> {
-    const fields = options?.fields ?? [
-      'id', 'account_id', 'name', 'account_status', 'amount_spent', 'balance', 'currency', 'spend_cap', 'business_name',
-    ];
+    const fieldSet = options?.full ? ENTITY_FIELDS.account.full : ENTITY_FIELDS.account.minimal;
+    const fields = options?.fields ?? fieldSet;
     const params: Record<string, string> = {
       fields: fields.join(','),
       limit: String(options?.limit ?? 25),
@@ -210,11 +238,8 @@ export class MetaAdsClient {
     return this.request<MetaPaginatedResponse<AdAccount>>('me/adaccounts', params);
   }
 
-  async getAccount(accountId: string): Promise<AdAccount> {
-    const fields = [
-      'id', 'account_id', 'name', 'account_status', 'amount_spent', 'balance', 'currency',
-      'spend_cap', 'business_name', 'business_city', 'business_country_code',
-    ];
+  async getAccount(accountId: string, options?: { full?: boolean }): Promise<AdAccount> {
+    const fields = options?.full ? ENTITY_FIELDS.account.full : ENTITY_FIELDS.account.minimal;
     return this.request<AdAccount>(accountId, { fields: fields.join(',') });
   }
 
@@ -222,10 +247,8 @@ export class MetaAdsClient {
 
   async listCampaigns(options?: ListOptions & { status?: string }): Promise<MetaPaginatedResponse<Campaign>> {
     const accountId = this.getAccountId();
-    const fields = options?.fields ?? [
-      'id', 'name', 'status', 'effective_status', 'objective', 'created_time', 'updated_time',
-      'daily_budget', 'lifetime_budget', 'budget_remaining',
-    ];
+    const fieldSet = options?.full ? ENTITY_FIELDS.campaign.full : ENTITY_FIELDS.campaign.minimal;
+    const fields = options?.fields ?? fieldSet;
 
     const fetchPage = async (cursor?: string): Promise<MetaPaginatedResponse<Campaign>> => {
       const params: Record<string, string> = {
@@ -246,12 +269,10 @@ export class MetaAdsClient {
     return fetchPage();
   }
 
-  async getCampaign(campaignId: string, fields?: string[]): Promise<Campaign> {
-    const defaultFields = [
-      'id', 'name', 'status', 'effective_status', 'objective', 'created_time', 'updated_time',
-      'start_time', 'stop_time', 'daily_budget', 'lifetime_budget', 'budget_remaining', 'special_ad_categories',
-    ];
-    return this.request<Campaign>(campaignId, { fields: (fields ?? defaultFields).join(',') });
+  async getCampaign(campaignId: string, options?: { fields?: string[]; full?: boolean }): Promise<Campaign> {
+    const fieldSet = options?.full ? ENTITY_FIELDS.campaign.full : ENTITY_FIELDS.campaign.minimal;
+    const fields = options?.fields ?? fieldSet;
+    return this.request<Campaign>(campaignId, { fields: fields.join(',') });
   }
 
   async createCampaign(params: {
@@ -286,12 +307,9 @@ export class MetaAdsClient {
   // ============ Ad Set Operations ============
 
   async listAdSets(options?: ListOptions & { campaignId?: string; status?: string; includeDelivery?: boolean }): Promise<MetaPaginatedResponse<AdSet>> {
-    const baseFields = [
-      'id', 'name', 'campaign_id', 'status', 'effective_status', 'created_time', 'updated_time',
-      'daily_budget', 'lifetime_budget', 'budget_remaining', 'billing_event', 'optimization_goal',
-    ];
+    const fieldSet = options?.full ? ENTITY_FIELDS.adset.full : ENTITY_FIELDS.adset.minimal;
     const deliveryFields = options?.includeDelivery ? ['learning_phase_info', 'issues_info'] : [];
-    const fields = options?.fields ?? [...baseFields, ...deliveryFields];
+    const fields = options?.fields ?? [...fieldSet, ...deliveryFields];
     const endpoint = options?.campaignId ? `${options.campaignId}/adsets` : `${this.getAccountId()}/adsets`;
 
     const fetchPage = async (cursor?: string): Promise<MetaPaginatedResponse<AdSet>> => {
@@ -313,13 +331,10 @@ export class MetaAdsClient {
     return fetchPage();
   }
 
-  async getAdSet(adsetId: string, fields?: string[]): Promise<AdSet> {
-    const defaultFields = [
-      'id', 'name', 'campaign_id', 'status', 'effective_status', 'created_time', 'updated_time',
-      'start_time', 'end_time', 'daily_budget', 'lifetime_budget', 'budget_remaining',
-      'billing_event', 'optimization_goal', 'bid_strategy', 'bid_amount', 'targeting',
-    ];
-    return this.request<AdSet>(adsetId, { fields: (fields ?? defaultFields).join(',') });
+  async getAdSet(adsetId: string, options?: { fields?: string[]; full?: boolean }): Promise<AdSet> {
+    const fieldSet = options?.full ? ENTITY_FIELDS.adset.full : ENTITY_FIELDS.adset.minimal;
+    const fields = options?.fields ?? fieldSet;
+    return this.request<AdSet>(adsetId, { fields: fields.join(',') });
   }
 
   async createAdSet(params: {
@@ -355,16 +370,13 @@ export class MetaAdsClient {
   // ============ Ad Operations ============
 
   async listAds(options?: ListOptions & { adsetId?: string; campaignId?: string; status?: string; includeDelivery?: boolean; includeCreative?: boolean }): Promise<MetaPaginatedResponse<Ad>> {
-    const baseFields = [
-      'id', 'name', 'adset_id', 'campaign_id', 'status', 'effective_status',
-      'created_time', 'updated_time', 'preview_shareable_link',
-    ];
+    const fieldSet = options?.full ? ENTITY_FIELDS.ad.full : ENTITY_FIELDS.ad.minimal;
     const deliveryFields = options?.includeDelivery ? ['issues_info'] : [];
     // Request creative with nested fields for full creative data
     const creativeFields = options?.includeCreative
       ? ['creative{id,name,title,body,image_url,video_id,thumbnail_url,call_to_action_type,object_story_spec}']
       : [];
-    const fields = options?.fields ?? [...baseFields, ...deliveryFields, ...creativeFields];
+    const fields = options?.fields ?? [...fieldSet, ...deliveryFields, ...creativeFields];
 
     let endpoint: string;
     if (options?.adsetId) {
@@ -395,12 +407,10 @@ export class MetaAdsClient {
     return fetchPage();
   }
 
-  async getAd(adId: string, fields?: string[]): Promise<Ad> {
-    const defaultFields = [
-      'id', 'name', 'adset_id', 'campaign_id', 'status', 'effective_status',
-      'created_time', 'updated_time', 'creative', 'preview_shareable_link',
-    ];
-    return this.request<Ad>(adId, { fields: (fields ?? defaultFields).join(',') });
+  async getAd(adId: string, options?: { fields?: string[]; full?: boolean }): Promise<Ad> {
+    const fieldSet = options?.full ? ENTITY_FIELDS.ad.full : ENTITY_FIELDS.ad.minimal;
+    const fields = options?.fields ?? fieldSet;
+    return this.request<Ad>(adId, { fields: fields.join(',') });
   }
 
   async createAd(params: {
@@ -493,9 +503,8 @@ export class MetaAdsClient {
 
   async listCreatives(options?: ListOptions): Promise<MetaPaginatedResponse<AdCreative>> {
     const accountId = this.getAccountId();
-    const fields = options?.fields ?? [
-      'id', 'name', 'title', 'body', 'image_hash', 'image_url', 'video_id', 'thumbnail_url', 'call_to_action_type',
-    ];
+    const fieldSet = options?.full ? ENTITY_FIELDS.creative.full : ENTITY_FIELDS.creative.minimal;
+    const fields = options?.fields ?? fieldSet;
     const params: Record<string, string> = {
       fields: fields.join(','),
       limit: String(options?.limit ?? 25),
@@ -505,12 +514,10 @@ export class MetaAdsClient {
     return this.request<MetaPaginatedResponse<AdCreative>>(`${accountId}/adcreatives`, params);
   }
 
-  async getCreative(creativeId: string, fields?: string[]): Promise<AdCreative> {
-    const defaultFields = [
-      'id', 'name', 'title', 'body', 'image_hash', 'image_url', 'video_id',
-      'thumbnail_url', 'object_story_spec', 'call_to_action_type',
-    ];
-    return this.request<AdCreative>(creativeId, { fields: (fields ?? defaultFields).join(',') });
+  async getCreative(creativeId: string, options?: { fields?: string[]; full?: boolean }): Promise<AdCreative> {
+    const fieldSet = options?.full ? ENTITY_FIELDS.creative.full : ENTITY_FIELDS.creative.minimal;
+    const fields = options?.fields ?? fieldSet;
+    return this.request<AdCreative>(creativeId, { fields: fields.join(',') });
   }
 
   // ============ Image Upload ============

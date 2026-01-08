@@ -22,7 +22,7 @@ export default class List extends AuthenticatedCommand {
     const { flags } = await this.parse(List);
 
     await this.runWithAuth(flags, async () => {
-      const result = await this.client.listAccounts({ limit: flags.limit, after: flags.after });
+      const result = await this.client.listAccounts({ limit: flags.limit, after: flags.after, full: flags.full });
 
       const columns: TableColumn<AdAccount>[] = [
         { key: 'account_id', header: 'Account ID' },

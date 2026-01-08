@@ -32,6 +32,7 @@ export default class List extends AuthenticatedCommand {
         after: flags.after,
         fields: flags.fields?.split(','),
         all: flags.all,
+        full: flags.full,
       });
 
       const columns: TableColumn<Campaign>[] = [

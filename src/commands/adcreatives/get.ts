@@ -19,7 +19,10 @@ export default class Get extends AuthenticatedCommand {
     const { args, flags } = await this.parse(Get);
 
     await this.runWithAuth(this.toFlagValues(flags), async () => {
-      const creative = await this.client.getCreative(args.creative_id, flags.fields?.split(','));
+      const creative = await this.client.getCreative(args.creative_id, {
+        fields: flags.fields?.split(','),
+        full: flags.full,
+      });
       this.outputSuccess(creative, this.client.getAccountId());
     });
   }

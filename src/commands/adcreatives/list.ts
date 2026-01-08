@@ -18,7 +18,7 @@ export default class List extends AuthenticatedCommand {
     const { flags } = await this.parse(List);
 
     await this.runWithAuth(this.toFlagValues(flags), async () => {
-      const result = await this.client.listCreatives({ limit: flags.limit, after: flags.after });
+      const result = await this.client.listCreatives({ limit: flags.limit, after: flags.after, full: flags.full });
 
       const columns: TableColumn<AdCreative>[] = [
         { key: 'id', header: 'ID' },

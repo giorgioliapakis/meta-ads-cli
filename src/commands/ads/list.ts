@@ -160,6 +160,7 @@ export default class List extends AuthenticatedCommand {
         limit: flags.all ? 100 : flags.limit,
         after: flags.after,
         all: flags.all,
+        full: flags.full,
         includeCreative: flags['include-creative'],
       });
 

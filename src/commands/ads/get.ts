@@ -19,7 +19,10 @@ export default class Get extends AuthenticatedCommand {
     const { args, flags } = await this.parse(Get);
 
     await this.runWithAuth(this.toFlagValues(flags), async () => {
-      const ad = await this.client.getAd(args.ad_id, flags.fields?.split(','));
+      const ad = await this.client.getAd(args.ad_id, {
+        fields: flags.fields?.split(','),
+        full: flags.full,
+      });
       this.outputSuccess(ad, this.client.getAccountId());
     });
   }

@@ -37,6 +37,10 @@ export abstract class BaseCommand extends Command {
       description: 'Output raw data without success/meta wrapper (reduces tokens)',
       default: false,
     }),
+    full: Flags.boolean({
+      description: 'Include all available fields (default: minimal for agent efficiency)',
+      default: false,
+    }),
   };
 
   protected formatter!: OutputFormatter;
@@ -99,7 +103,8 @@ export abstract class BaseCommand extends Command {
     token?: string;
     'output-fields'?: string;
     'no-meta'?: boolean;
-  }): FlagValues & { 'output-fields'?: string; 'no-meta'?: boolean } {
+    full?: boolean;
+  }): FlagValues & { 'output-fields'?: string; 'no-meta'?: boolean; full?: boolean } {
     return {
       account: flags.account,
       output: flags.output,
@@ -108,6 +113,7 @@ export abstract class BaseCommand extends Command {
       token: flags.token,
       'output-fields': flags['output-fields'],
       'no-meta': flags['no-meta'],
+      full: flags.full,
     };
   }
 

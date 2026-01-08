@@ -78,6 +78,8 @@ Or pass `--account act_123456789` to any command.
 | `campaigns list` | List campaigns | `meta-ads campaigns list` |
 | `campaigns list --status ACTIVE` | Filter by status | `meta-ads campaigns list --status ACTIVE` |
 | `campaigns get <id>` | Get campaign details | `meta-ads campaigns get 120210123456789` |
+| `campaigns get <id> --include adsets` | Get campaign with ad sets | `meta-ads campaigns get 123 --include adsets` |
+| `campaigns get <id> --include adsets,ads` | Get campaign with ad sets and ads | `meta-ads campaigns get 123 --include adsets,ads` |
 | `campaigns create` | Create campaign | `meta-ads campaigns create --name "Test" --objective OUTCOME_AWARENESS` |
 | `campaigns update <id>` | Update campaign | `meta-ads campaigns update 123 --name "New Name"` |
 | `campaigns pause <id>` | Pause campaign | `meta-ads campaigns pause 120210123456789` |
@@ -99,6 +101,7 @@ Or pass `--account act_123456789` to any command.
 | `adsets list --campaign <id>` | List ad sets in campaign | `meta-ads adsets list --campaign 123` |
 | `adsets list --status ACTIVE` | Filter by status | `meta-ads adsets list --status ACTIVE` |
 | `adsets get <id>` | Get ad set details | `meta-ads adsets get 120310123456789` |
+| `adsets get <id> --include ads` | Get ad set with ads | `meta-ads adsets get 123 --include ads` |
 | `adsets create` | Create ad set | See below |
 | `adsets update <id>` | Update ad set | `meta-ads adsets update 123 --name "New Name"` |
 | `adsets pause <id>` | Pause ad set | `meta-ads adsets pause 120310123456789` |
@@ -242,8 +245,26 @@ meta-ads insights get --level adset --date-preset last_30d --breakdowns age,gend
 | `schema actions` | Show action types | `meta-ads schema actions` |
 | `schema objectives` | Show campaign objectives | `meta-ads schema objectives` |
 | `schema video-fields` | Show video-specific fields | `meta-ads schema video-fields` |
+| `schema --enum-name <field>` | Get valid values for a field | `meta-ads schema --enum-name status` |
 
 **Schema Types:** `all`, `fields`, `breakdowns`, `date-presets`, `actions`, `objectives`, `video-fields`
+
+**Enum Discovery:**
+```bash
+# Get valid status values
+meta-ads schema --enum-name status
+# Returns: ACTIVE, PAUSED, DELETED, ARCHIVED
+
+# Get valid objectives
+meta-ads schema --enum-name objective
+# Returns: OUTCOME_AWARENESS, OUTCOME_ENGAGEMENT, OUTCOME_LEADS, ...
+
+# Get valid billing events
+meta-ads schema --enum-name billing_event
+# Returns: IMPRESSIONS, LINK_CLICKS, POST_ENGAGEMENT, ...
+```
+
+Available enum fields: `status`, `effective_status`, `objective`, `billing_event`, `optimization_goal`, `bid_strategy`, `call_to_action_type`, `special_ad_category`
 
 ---
 
@@ -256,8 +277,32 @@ These flags work on all commands:
 | `--account` | `-a` | Override default account | `--account act_123` |
 | `--output` | `-o` | Output format (json/table) | `--output table` |
 | `--output-fields` | | Filter JSON output to specific fields | `--output-fields id,name,spend` |
+| `--full` | | Include all available fields (default: minimal) | `--full` |
+| `--no-meta` | | Raw data without success/meta wrapper | `--no-meta` |
 | `--verbose` | `-v` | Enable debug output | `-v` |
 | `--quiet` | `-q` | Suppress non-essential output | `-q` |
+
+### Minimal vs Full Output
+
+By default, commands return minimal fields (6-8 per entity) for agent efficiency. Use `--full` to get all available fields.
+
+**Minimal (default):**
+| Entity | Fields |
+|--------|--------|
+| Campaign | id, name, status, effective_status, objective, daily_budget |
+| Ad Set | id, name, status, effective_status, campaign_id, daily_budget, optimization_goal |
+| Ad | id, name, status, effective_status, adset_id, campaign_id |
+| Creative | id, name, title, body, call_to_action_type |
+| Account | id, name, account_status, currency, amount_spent |
+
+**Full (with --full):**
+| Entity | Additional Fields |
+|--------|-------------------|
+| Campaign | + created_time, updated_time, lifetime_budget, budget_remaining, start_time, stop_time, special_ad_categories |
+| Ad Set | + created_time, updated_time, start_time, end_time, lifetime_budget, budget_remaining, billing_event, bid_strategy, bid_amount, targeting |
+| Ad | + created_time, updated_time, creative, preview_shareable_link |
+| Creative | + image_hash, image_url, video_id, thumbnail_url, object_story_spec |
+| Account | + account_id, balance, spend_cap, business_name, business_city, business_country_code |
 
 ---
 
@@ -745,10 +790,35 @@ Example output for `meta-ads schema breakdowns`:
   "data": { ... },
   "meta": {
     "account_id": "act_123456789",
-    "timestamp": "2025-01-04T12:00:00.000Z"
+    "timestamp": "2025-01-04T12:00:00.000Z",
+    "rate_limit": {
+      "call_count": 28,
+      "total_cputime": 15,
+      "total_time": 12,
+      "usage_pct": 28
+    }
   }
 }
 ```
+
+The `rate_limit` object shows API usage. When `usage_pct` approaches 100, throttle requests.
+
+### Mutation Response (pause/activate)
+```json
+{
+  "success": true,
+  "data": { "id": "123", "name": "My Campaign", "status": "PAUSED" },
+  "action_taken": true,
+  "reason": "status_changed",
+  "meta": { ... }
+}
+```
+
+- `action_taken: true` - Status was changed
+- `action_taken: false` - Already in target state (no API call made)
+- `reason`: `status_changed`, `already_paused`, `already_active`, `updated`
+
+This enables idempotent operations - agents can safely retry without side effects.
 
 ### Error Response
 ```json
@@ -757,6 +827,7 @@ Example output for `meta-ads schema breakdowns`:
   "error": {
     "code": "ERROR_CODE",
     "message": "Human-readable message",
+    "retryable": true,
     "details": {
       "suggestion": "How to fix it"
     },
@@ -765,15 +836,21 @@ Example output for `meta-ads schema breakdowns`:
 }
 ```
 
+The `retryable` field indicates if the error can be resolved by retrying.
+
 ### Common Error Codes
-| Code | Meaning |
-|------|---------|
-| `AUTH_NOT_CONFIGURED` | No access token. Run `meta-ads auth login` |
-| `AUTH_TOKEN_EXPIRED` | Token expired. Re-authenticate |
-| `AUTH_TOKEN_INVALID` | Token is invalid |
-| `RATE_LIMIT_EXCEEDED` | Too many requests. Wait and retry |
-| `INVALID_ACCOUNT_ID` | Account ID format wrong or not accessible |
-| `ENTITY_NOT_FOUND` | Campaign/adset/ad ID doesn't exist |
+| Code | Retryable | Meaning |
+|------|-----------|---------|
+| `AUTH_NOT_CONFIGURED` | No | No access token. Run `meta-ads auth login` |
+| `AUTH_TOKEN_EXPIRED` | No | Token expired. Re-authenticate |
+| `AUTH_TOKEN_INVALID` | No | Token is invalid |
+| `RATE_LIMIT_EXCEEDED` | Yes | Too many requests. Wait `retry_after` seconds |
+| `NETWORK_ERROR` | Yes | Transient network issue |
+| `TIMEOUT` | Yes | Request timed out |
+| `INVALID_ACCOUNT_ID` | No | Account ID format wrong or not accessible |
+| `ENTITY_NOT_FOUND` | No | Campaign/adset/ad ID doesn't exist |
+| `PERMISSION_DENIED` | No | Insufficient permissions |
+| `VALIDATION_ERROR` | No | Invalid parameters |
 
 ---
 

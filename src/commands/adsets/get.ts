@@ -32,7 +32,10 @@ export default class Get extends AuthenticatedCommand {
     const { args, flags } = await this.parse(Get);
 
     await this.runWithAuth(this.toFlagValues(flags), async () => {
-      const adset = await this.client.getAdSet(args.adset_id, flags.fields?.split(','));
+      const adset = await this.client.getAdSet(args.adset_id, {
+        fields: flags.fields?.split(','),
+        full: flags.full,
+      });
 
       // Build result with optional nested entities
       const result: AdSetWithChildren = { ...adset };
