@@ -16,9 +16,21 @@ export default class Pause extends AuthenticatedCommand {
     const { args, flags } = await this.parse(Pause);
 
     await this.runWithAuth(this.toFlagValues(flags), async () => {
-      const adset = await this.client.updateAdSetStatus(args.adset_id, 'PAUSED');
-      this.formatter.success(`Paused ad set: ${adset.id}`);
-      this.outputSuccess(adset, this.client.getAccountId());
+      // Check current status to determine if action is needed
+      const current = await this.client.getAdSet(args.adset_id);
+      const alreadyPaused = current.status === 'PAUSED';
+
+      const adset = alreadyPaused
+        ? current
+        : await this.client.updateAdSetStatus(args.adset_id, 'PAUSED');
+
+      this.formatter.success(`${alreadyPaused ? 'Already paused' : 'Paused'} ad set: ${adset.id}`);
+      this.outputMutationSuccess(
+        adset,
+        this.client.getAccountId(),
+        !alreadyPaused,
+        alreadyPaused ? 'already_paused' : 'status_changed'
+      );
     });
   }
 }

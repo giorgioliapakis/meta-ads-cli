@@ -123,8 +123,45 @@ export abstract class BaseCommand extends Command {
       return;
     }
 
-    const response = createSuccessResponse(filteredData, accountId);
+    // Include rate limit info if available
+    const rateLimit = this.client?.getRateLimitInfo();
+    const response = createSuccessResponse(filteredData, accountId, undefined, rateLimit);
     this.formatter.output(response, columns as TableColumn<T>[]);
+  }
+
+  /**
+   * Output a mutation response with action_taken indicator
+   * Useful for pause/activate commands to tell agents if state actually changed
+   */
+  protected outputMutationSuccess<T>(
+    data: T,
+    accountId: string | undefined,
+    actionTaken: boolean,
+    reason?: 'status_changed' | 'already_paused' | 'already_active' | 'updated'
+  ): void {
+    const filteredData = this.filterFields(data);
+
+    // If --no-meta flag is set, output compact format
+    if (this.noMetaWrapper) {
+      console.log(JSON.stringify({ ...filteredData as object, action_taken: actionTaken, reason }, null, 2));
+      return;
+    }
+
+    // Include rate limit info if available
+    const rateLimit = this.client?.getRateLimitInfo();
+
+    const response = {
+      success: true as const,
+      data: filteredData,
+      action_taken: actionTaken,
+      reason,
+      meta: {
+        account_id: accountId,
+        timestamp: new Date().toISOString(),
+        ...(rateLimit && { rate_limit: rateLimit }),
+      },
+    };
+    this.formatter.output(response);
   }
 
   /**

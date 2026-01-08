@@ -16,9 +16,21 @@ export default class Activate extends AuthenticatedCommand {
     const { args, flags } = await this.parse(Activate);
 
     await this.runWithAuth(this.toFlagValues(flags), async () => {
-      const campaign = await this.client.updateCampaignStatus(args.campaign_id, 'ACTIVE');
-      this.formatter.success(`Activated campaign: ${campaign.id}`);
-      this.outputSuccess(campaign, this.client.getAccountId());
+      // Check current status to determine if action is needed
+      const current = await this.client.getCampaign(args.campaign_id);
+      const alreadyActive = current.status === 'ACTIVE';
+
+      const campaign = alreadyActive
+        ? current
+        : await this.client.updateCampaignStatus(args.campaign_id, 'ACTIVE');
+
+      this.formatter.success(`${alreadyActive ? 'Already active' : 'Activated'} campaign: ${campaign.id}`);
+      this.outputMutationSuccess(
+        campaign,
+        this.client.getAccountId(),
+        !alreadyActive,
+        alreadyActive ? 'already_active' : 'status_changed'
+      );
     });
   }
 }

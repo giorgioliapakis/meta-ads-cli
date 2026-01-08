@@ -7,6 +7,8 @@ import {
 import {
   getFieldsForLevel,
   getVideoFields,
+  getEnumValues,
+  getAvailableEnums,
   BREAKDOWNS,
   ACTION_TYPES,
   CAMPAIGN_OBJECTIVES,
@@ -23,6 +25,8 @@ export default class Schema extends Command {
     '<%= config.bin %> schema date-presets',
     '<%= config.bin %> schema actions',
     '<%= config.bin %> schema objectives',
+    '<%= config.bin %> schema enums',
+    '<%= config.bin %> schema enums --enum-name status',
   ];
 
   static override args = {
@@ -30,7 +34,7 @@ export default class Schema extends Command {
       description: 'Schema type to display',
       required: false,
       default: 'all',
-      options: ['all', 'fields', 'breakdowns', 'date-presets', 'actions', 'objectives', 'video-fields'],
+      options: ['all', 'fields', 'breakdowns', 'date-presets', 'actions', 'objectives', 'video-fields', 'enums'],
     }),
   };
 
@@ -45,6 +49,9 @@ export default class Schema extends Command {
       description: 'Entity level for fields schema',
       options: ['account', 'campaign', 'adset', 'ad'],
       default: 'ad',
+    }),
+    'enum-name': Flags.string({
+      description: 'Specific enum to display (status, objective, billing_event, etc.)',
     }),
   };
 
@@ -107,6 +114,25 @@ export default class Schema extends Command {
       };
     }
 
+    if (type === 'all' || type === 'enums') {
+      if (flags['enum-name']) {
+        const values = getEnumValues(flags['enum-name']);
+        if (values) {
+          output.enums = { [flags['enum-name']]: [...values] };
+        } else {
+          output.enums = {
+            error: `Unknown enum: ${flags['enum-name']}`,
+            available: getAvailableEnums(),
+          };
+        }
+      } else {
+        output.enums = {
+          available: getAvailableEnums(),
+          usage: 'Use --enum-name status to get values for a specific enum',
+        };
+      }
+    }
+
     // Output formatting
     if (flags.output === 'compact') {
       // Compact output - just the names/values
@@ -128,6 +154,14 @@ export default class Schema extends Command {
       }
       if (output.objectives) {
         compact.objectives = (output.objectives as { available: { name: string }[] }).available.map((o) => o.name);
+      }
+      if (output.enums) {
+        const enumsData = output.enums as { available?: string[]; [key: string]: unknown };
+        if (enumsData.available && !flags['enum-name']) {
+          compact.enums = enumsData.available;
+        } else {
+          compact.enums = enumsData;
+        }
       }
       console.log(JSON.stringify(compact, null, 2));
     } else {

@@ -27,6 +27,7 @@ export class CliError extends Error {
       error: {
         code: this.code,
         message: this.message,
+        retryable: errorMessage.retryable,
         details: {
           ...this.details,
           suggestion: errorMessage.suggestion,

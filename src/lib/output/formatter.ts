@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import Table from 'cli-table3';
-import type { ApiResponse, SuccessResponse, ErrorResponse } from '../../types/index.js';
+import type { ApiResponse, SuccessResponse, ErrorResponse, RateLimitInfo } from '../../types/index.js';
 
 export type OutputFormat = 'json' | 'table';
 
@@ -287,7 +287,8 @@ export class OutputFormatter {
 export function createSuccessResponse<T>(
   data: T,
   accountId?: string,
-  pagination?: { has_next: boolean; cursor?: string }
+  pagination?: { has_next: boolean; cursor?: string },
+  rateLimit?: RateLimitInfo
 ): SuccessResponse<T> {
   return {
     success: true,
@@ -296,6 +297,7 @@ export function createSuccessResponse<T>(
       account_id: accountId,
       timestamp: new Date().toISOString(),
       pagination,
+      ...(rateLimit && { rate_limit: rateLimit }),
     },
   };
 }
@@ -307,13 +309,15 @@ export function createErrorResponse(
   code: string,
   message: string,
   details?: Record<string, unknown>,
-  retryAfter?: number
+  retryAfter?: number,
+  retryable: boolean = false
 ): ErrorResponse {
   return {
     success: false,
     error: {
       code,
       message,
+      retryable,
       details,
       retry_after: retryAfter,
     },

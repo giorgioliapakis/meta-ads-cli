@@ -12,6 +12,7 @@ import type {
   AdVideo,
   Insights,
   MetaPaginatedResponse,
+  RateLimitInfo,
 } from '../../types/index.js';
 
 export interface ClientOptions {
@@ -35,12 +36,21 @@ export class MetaAdsClient {
   private accountId?: string;
   private apiVersion: string;
   private debug: boolean;
+  private lastRateLimitInfo?: RateLimitInfo;
 
   constructor(options: ClientOptions) {
     this.accessToken = options.accessToken;
     this.accountId = options.accountId;
     this.apiVersion = options.apiVersion ?? 'v22.0';
     this.debug = options.debug ?? false;
+  }
+
+  /**
+   * Get rate limit info from the last API call
+   * Useful for agents to throttle proactively
+   */
+  getRateLimitInfo(): RateLimitInfo | undefined {
+    return this.lastRateLimitInfo;
   }
 
   static async fromConfig(flags?: FlagValues): Promise<MetaAdsClient> {
@@ -78,6 +88,10 @@ export class MetaAdsClient {
 
     try {
       const response = await fetch(url.toString());
+
+      // Parse rate limit headers (Meta returns usage as JSON in x-business-use-case-usage)
+      this.parseRateLimitHeaders(response);
+
       const result = await response.json() as T & { error?: { message: string; code: number } };
 
       if (result.error) {
@@ -87,6 +101,41 @@ export class MetaAdsClient {
       return result;
     } catch (error) {
       throw handleMetaApiError(error);
+    }
+  }
+
+  /**
+   * Parse rate limit headers from Meta API response
+   * Header format: {"account_id": [{"call_count": 28, "total_cputime": 50, "total_time": 25, ...}]}
+   */
+  private parseRateLimitHeaders(response: Response): void {
+    const rateLimitHeader = response.headers.get('x-business-use-case-usage');
+    if (!rateLimitHeader) return;
+
+    try {
+      const usageData = JSON.parse(rateLimitHeader) as Record<string, Array<{
+        call_count?: number;
+        total_cputime?: number;
+        total_time?: number;
+      }>>;
+
+      // Get the first account's usage data
+      const accountUsage = Object.values(usageData)[0];
+      if (accountUsage?.[0]) {
+        const usage = accountUsage[0];
+        this.lastRateLimitInfo = {
+          call_count: usage.call_count,
+          total_cputime: usage.total_cputime,
+          total_time: usage.total_time,
+          usage_pct: Math.max(
+            usage.call_count ?? 0,
+            usage.total_cputime ?? 0,
+            usage.total_time ?? 0
+          ),
+        };
+      }
+    } catch {
+      // Ignore parse errors - rate limit info is optional
     }
   }
 
@@ -110,6 +159,10 @@ export class MetaAdsClient {
         method: 'POST',
         body,
       });
+
+      // Parse rate limit headers
+      this.parseRateLimitHeaders(response);
+
       const result = await response.json() as T & { error?: { message: string; code: number } };
 
       if (result.error) {

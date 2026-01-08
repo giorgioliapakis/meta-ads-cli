@@ -10,6 +10,7 @@ export interface ErrorResponse {
   error: {
     code: string;
     message: string;
+    retryable: boolean;
     details?: Record<string, unknown>;
     retry_after?: number;
   };
@@ -17,11 +18,27 @@ export interface ErrorResponse {
 
 export type ApiResponse<T> = SuccessResponse<T> | ErrorResponse;
 
+// Mutation response with action_taken indicator for agents
+export type MutationReason = 'status_changed' | 'already_paused' | 'already_active' | 'updated';
+
+export interface MutationSuccessResponse<T> extends SuccessResponse<T> {
+  action_taken: boolean;
+  reason?: MutationReason;
+}
+
+export interface RateLimitInfo {
+  call_count?: number;      // Percentage of calls used (0-100)
+  total_cputime?: number;   // Percentage of CPU time used
+  total_time?: number;      // Percentage of total time used
+  usage_pct: number;        // Max of all percentages - quick check for throttling
+}
+
 export interface ResponseMeta {
   account_id?: string;
   timestamp: string;
   request_id?: string;
   pagination?: PaginationMeta;
+  rate_limit?: RateLimitInfo;
 }
 
 export interface PaginationMeta {

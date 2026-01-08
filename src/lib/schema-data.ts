@@ -147,3 +147,49 @@ export const CAMPAIGN_OBJECTIVES = [
   { name: 'OUTCOME_APP_PROMOTION', description: 'App installs and engagement' },
   { name: 'OUTCOME_SALES', description: 'Conversions and catalog sales' },
 ];
+
+/**
+ * Enum values for common API parameters
+ * Used by agents to discover valid values without guessing
+ */
+export const ENUMS = {
+  status: ['ACTIVE', 'PAUSED', 'DELETED', 'ARCHIVED'],
+  effective_status: [
+    'ACTIVE', 'PAUSED', 'DELETED', 'ARCHIVED',
+    'PENDING_REVIEW', 'DISAPPROVED', 'PREAPPROVED',
+    'CAMPAIGN_PAUSED', 'ADSET_PAUSED', 'IN_PROCESS', 'WITH_ISSUES',
+  ],
+  objective: [
+    'OUTCOME_AWARENESS', 'OUTCOME_ENGAGEMENT', 'OUTCOME_TRAFFIC',
+    'OUTCOME_LEADS', 'OUTCOME_APP_PROMOTION', 'OUTCOME_SALES',
+  ],
+  billing_event: ['IMPRESSIONS', 'LINK_CLICKS', 'APP_INSTALLS', 'VIDEO_VIEWS', 'THRUPLAY'],
+  optimization_goal: [
+    'REACH', 'IMPRESSIONS', 'LINK_CLICKS', 'LANDING_PAGE_VIEWS',
+    'CONVERSIONS', 'APP_INSTALLS', 'LEAD_GENERATION', 'VIDEO_VIEWS', 'THRUPLAY',
+  ],
+  bid_strategy: ['LOWEST_COST_WITHOUT_CAP', 'LOWEST_COST_WITH_BID_CAP', 'COST_CAP'],
+  cta_type: [
+    'LEARN_MORE', 'SHOP_NOW', 'SIGN_UP', 'SUBSCRIBE', 'WATCH_MORE',
+    'APPLY_NOW', 'BOOK_NOW', 'CONTACT_US', 'DOWNLOAD', 'GET_OFFER',
+    'GET_QUOTE', 'ORDER_NOW', 'SEND_MESSAGE', 'CALL_NOW',
+  ],
+  date_preset: [
+    'today', 'yesterday', 'this_month', 'last_month',
+    'this_quarter', 'maximum', 'data_maximum', 'last_3d',
+    'last_7d', 'last_14d', 'last_28d', 'last_30d', 'last_90d',
+    'last_week_mon_sun', 'last_week_sun_sat',
+    'last_quarter', 'last_year', 'this_week_mon_today', 'this_week_sun_today', 'this_year',
+  ],
+  level: ['account', 'campaign', 'adset', 'ad'],
+} as const;
+
+export type EnumName = keyof typeof ENUMS;
+
+export function getEnumValues(enumName: string): readonly string[] | undefined {
+  return ENUMS[enumName as EnumName];
+}
+
+export function getAvailableEnums(): string[] {
+  return Object.keys(ENUMS);
+}
