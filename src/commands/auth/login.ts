@@ -1,5 +1,4 @@
 import { Command, Flags } from '@oclif/core';
-import { createInterface } from 'node:readline';
 import { tokenManager } from '../../lib/auth/token-manager.js';
 import { OutputFormatter, createSuccessResponse, createErrorResponse } from '../../lib/output/formatter.js';
 import { isCliError } from '../../lib/errors/handler.js';
@@ -76,16 +75,34 @@ export default class Login extends Command {
   }
 
   private async promptForToken(): Promise<string> {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    console.log('\nTo get an access token:');
+    console.log('1. Go to Meta Business Suite > Business Settings');
+    console.log('2. Navigate to Users > System Users');
+    console.log('3. Generate a token with ads_management and ads_read permissions\n');
     return new Promise((resolve) => {
-      console.log('\nTo get an access token:');
-      console.log('1. Go to Meta Business Suite > Business Settings');
-      console.log('2. Navigate to Users > System Users');
-      console.log('3. Generate a token with ads_management and ads_read permissions\n');
-      rl.question('Enter your access token: ', (answer) => {
-        rl.close();
-        resolve(answer.trim());
-      });
+      process.stdout.write('Enter your access token: ');
+      const stdin = process.stdin;
+      const wasRaw = stdin.isRaw;
+      stdin.setRawMode(true);
+      stdin.resume();
+      stdin.setEncoding('utf8');
+      let input = '';
+      const onData = (ch: string) => {
+        if (ch === '\n' || ch === '\r' || ch === '\u0004') {
+          stdin.setRawMode(wasRaw ?? false);
+          stdin.pause();
+          stdin.removeListener('data', onData);
+          process.stdout.write('\n');
+          resolve(input.trim());
+        } else if (ch === '\u0003') {
+          process.exit(130);
+        } else if (ch === '\u007f' || ch === '\b') {
+          input = input.slice(0, -1);
+        } else {
+          input += ch;
+        }
+      };
+      stdin.on('data', onData);
     });
   }
 }
