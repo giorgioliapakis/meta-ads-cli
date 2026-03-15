@@ -35,6 +35,11 @@ export default class List extends AuthenticatedCommand {
         full: flags.full,
       });
 
+      if (flags.count) {
+        this.outputCount(result.data, this.client.getAccountId());
+        return;
+      }
+
       const columns: TableColumn<Campaign>[] = [
         { key: 'id', header: 'ID' },
         { key: 'name', header: 'Name' },
@@ -43,7 +48,7 @@ export default class List extends AuthenticatedCommand {
         { key: 'daily_budget', header: 'Daily Budget', formatter: (v) => v ? `${Number(v) / 100}` : '-' },
       ];
 
-      this.outputSuccess(result.data, this.client.getAccountId(), columns);
+      this.outputSuccess(result.data, this.client.getAccountId(), columns, this.toPaginationMeta(result.paging));
     });
   }
 }

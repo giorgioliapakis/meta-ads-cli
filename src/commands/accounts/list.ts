@@ -24,6 +24,11 @@ export default class List extends AuthenticatedCommand {
     await this.runWithAuth(flags, async () => {
       const result = await this.client.listAccounts({ limit: flags.limit, after: flags.after, full: flags.full });
 
+      if (flags.count) {
+        this.outputCount(result.data);
+        return;
+      }
+
       const columns: TableColumn<AdAccount>[] = [
         { key: 'account_id', header: 'Account ID' },
         { key: 'name', header: 'Name' },
@@ -32,7 +37,7 @@ export default class List extends AuthenticatedCommand {
         { key: 'amount_spent', header: 'Spent', formatter: (v) => v ? `${Number(v) / 100}` : '-' },
       ];
 
-      this.outputSuccess(result.data, undefined, columns);
+      this.outputSuccess(result.data, undefined, columns, this.toPaginationMeta(result.paging));
     });
   }
 }

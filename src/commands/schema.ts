@@ -27,6 +27,8 @@ export default class Schema extends Command {
     '<%= config.bin %> schema objectives',
     '<%= config.bin %> schema enums',
     '<%= config.bin %> schema enums --enum-name status',
+    '<%= config.bin %> schema commands',
+    '<%= config.bin %> schema commands --command "campaigns list"',
   ];
 
   static override args = {
@@ -34,7 +36,7 @@ export default class Schema extends Command {
       description: 'Schema type to display',
       required: false,
       default: 'all',
-      options: ['all', 'fields', 'breakdowns', 'date-presets', 'actions', 'objectives', 'video-fields', 'enums'],
+      options: ['all', 'fields', 'breakdowns', 'date-presets', 'actions', 'objectives', 'video-fields', 'enums', 'commands'],
     }),
   };
 
@@ -52,6 +54,9 @@ export default class Schema extends Command {
     }),
     'enum-name': Flags.string({
       description: 'Specific enum to display (status, objective, billing_event, etc.)',
+    }),
+    command: Flags.string({
+      description: 'Command name for flag discovery (e.g., "campaigns list")',
     }),
   };
 
@@ -144,6 +149,41 @@ export default class Schema extends Command {
           available: getAvailableEnums(),
           usage: 'Use --enum-name status to get values for a specific enum',
         };
+      }
+    }
+
+    if (type === 'commands') {
+      const allCommands = this.config.commands
+        .filter(cmd => !cmd.hidden)
+        .map(cmd => ({
+          id: cmd.id.replace(/:/g, ' '),
+          description: cmd.description,
+          args: Object.entries(cmd.args ?? {}).map(([name, arg]) => ({
+            name,
+            description: (arg as Record<string, unknown>).description,
+            required: (arg as Record<string, unknown>).required ?? false,
+          })),
+          flags: Object.entries(cmd.flags ?? {}).reduce((acc, [name, flag]) => {
+            const f = flag as Record<string, unknown>;
+            const entry: Record<string, unknown> = {
+              type: f.type,
+              description: f.description,
+              required: f.required ?? false,
+            };
+            if (f.default !== undefined) entry.default = f.default;
+            if (f.options) entry.options = f.options;
+            if (f.char) entry.char = f.char;
+            acc[name] = entry;
+            return acc;
+          }, {} as Record<string, unknown>),
+        }));
+
+      if (flags.command) {
+        const cmdId = flags.command.replace(/ /g, ':');
+        const matched = allCommands.find(c => c.id === flags.command || c.id.replace(/ /g, ':') === cmdId);
+        output.commands = matched ?? { error: `Command not found: ${flags.command}` };
+      } else {
+        output.commands = allCommands;
       }
     }
 

@@ -20,6 +20,11 @@ export default class List extends AuthenticatedCommand {
     await this.runWithAuth(this.toFlagValues(flags), async () => {
       const result = await this.client.listCreatives({ limit: flags.limit, after: flags.after, full: flags.full });
 
+      if (flags.count) {
+        this.outputCount(result.data, this.client.getAccountId());
+        return;
+      }
+
       const columns: TableColumn<AdCreative>[] = [
         { key: 'id', header: 'ID' },
         { key: 'name', header: 'Name' },
@@ -27,7 +32,7 @@ export default class List extends AuthenticatedCommand {
         { key: 'call_to_action_type', header: 'CTA' },
       ];
 
-      this.outputSuccess(result.data, this.client.getAccountId(), columns);
+      this.outputSuccess(result.data, this.client.getAccountId(), columns, this.toPaginationMeta(result.paging));
     });
   }
 }

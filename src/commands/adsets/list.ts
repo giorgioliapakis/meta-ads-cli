@@ -35,6 +35,11 @@ export default class List extends AuthenticatedCommand {
         full: flags.full,
       });
 
+      if (flags.count) {
+        this.outputCount(result.data, this.client.getAccountId());
+        return;
+      }
+
       const columns: TableColumn<AdSet>[] = [
         { key: 'id', header: 'ID' },
         { key: 'name', header: 'Name' },
@@ -43,7 +48,7 @@ export default class List extends AuthenticatedCommand {
         { key: 'optimization_goal', header: 'Optimization' },
       ];
 
-      this.outputSuccess(result.data, this.client.getAccountId(), columns);
+      this.outputSuccess(result.data, this.client.getAccountId(), columns, this.toPaginationMeta(result.paging));
     });
   }
 }

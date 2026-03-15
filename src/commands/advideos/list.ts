@@ -20,6 +20,11 @@ export default class List extends AuthenticatedCommand {
     await this.runWithAuth(this.toFlagValues(flags), async () => {
       const result = await this.client.listVideos({ limit: flags.limit, after: flags.after });
 
+      if (flags.count) {
+        this.outputCount(result.data, this.client.getAccountId());
+        return;
+      }
+
       const columns: TableColumn<AdVideo>[] = [
         { key: 'id', header: 'ID' },
         { key: 'title', header: 'Title' },
@@ -27,7 +32,7 @@ export default class List extends AuthenticatedCommand {
         { key: 'created_time', header: 'Created' },
       ];
 
-      this.outputSuccess(result.data, this.client.getAccountId(), columns);
+      this.outputSuccess(result.data, this.client.getAccountId(), columns, this.toPaginationMeta(result.paging));
     });
   }
 }

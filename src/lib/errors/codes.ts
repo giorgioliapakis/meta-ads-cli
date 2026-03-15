@@ -160,3 +160,36 @@ export const ErrorMessages: Record<ErrorCode, ErrorMessage> = {
     retryable: false,
   },
 };
+
+/**
+ * Exit codes by error category for agent-parseable process exit status.
+ * 0: success, 1: general/API, 2: auth, 3: rate limit, 4: validation, 5: not found, 6: network, 7: config
+ */
+export const EXIT_CODES: Record<ErrorCode, number> = {
+  [ErrorCode.AUTH_NOT_CONFIGURED]: 2,
+  [ErrorCode.AUTH_TOKEN_EXPIRED]: 2,
+  [ErrorCode.AUTH_TOKEN_INVALID]: 2,
+  [ErrorCode.AUTH_INSUFFICIENT_PERMISSIONS]: 2,
+  [ErrorCode.RATE_LIMIT_EXCEEDED]: 3,
+  [ErrorCode.QUOTA_EXCEEDED]: 3,
+  [ErrorCode.INVALID_ACCOUNT_ID]: 4,
+  [ErrorCode.INVALID_CAMPAIGN_ID]: 4,
+  [ErrorCode.INVALID_ADSET_ID]: 4,
+  [ErrorCode.INVALID_AD_ID]: 4,
+  [ErrorCode.INVALID_PARAMETER]: 4,
+  [ErrorCode.MISSING_REQUIRED_FIELD]: 4,
+  [ErrorCode.ENTITY_NOT_FOUND]: 5,
+  [ErrorCode.DUPLICATE_ENTITY]: 1,
+  [ErrorCode.OPERATION_FAILED]: 1,
+  [ErrorCode.API_VERSION_DEPRECATED]: 1,
+  [ErrorCode.API_ERROR]: 1,
+  [ErrorCode.NETWORK_ERROR]: 6,
+  [ErrorCode.TIMEOUT]: 6,
+  [ErrorCode.CONFIG_NOT_FOUND]: 7,
+  [ErrorCode.INVALID_CONFIG]: 7,
+  [ErrorCode.UNKNOWN_ERROR]: 1,
+};
+
+export function getExitCode(code: ErrorCode): number {
+  return EXIT_CODES[code] ?? 1;
+}

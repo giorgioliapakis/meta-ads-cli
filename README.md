@@ -1,6 +1,6 @@
 # meta-ads-cli
 
-A command-line interface for managing Meta (Facebook/Instagram) Ads accounts. Designed for AI agents and automation workflows, with structured JSON output by default.
+A command-line interface for managing Meta (Facebook/Instagram) Ads. Built for AI agents and automation, with structured JSON output, machine-parseable error codes, and token-efficient response modes.
 
 > **Disclaimer:** This is an unofficial, community-maintained tool and is not affiliated with, endorsed by, or sponsored by Meta Platforms, Inc. "Meta", "Facebook", and "Instagram" are trademarks of Meta Platforms, Inc.
 
@@ -17,196 +17,115 @@ npx meta-ads-cli campaigns list
 
 ## Quick Start
 
-### 1. Get an Access Token
-
-1. Go to [Meta Business Suite](https://business.facebook.com/) > Business Settings
-2. Navigate to **Users** > **System Users**
-3. Create or select a System User
-4. Generate a token with `ads_management` and `ads_read` permissions
-
-### 2. Authenticate
-
 ```bash
+# 1. Authenticate (get token from Meta Business Suite > System Users)
 meta-ads auth login --token YOUR_ACCESS_TOKEN
-```
 
-### 3. Set Default Account
-
-```bash
+# 2. Set default account
 meta-ads accounts list
 meta-ads accounts switch act_123456789
-```
 
-### 4. Start Using
-
-```bash
-# List campaigns
-meta-ads campaigns list
-
-# Get campaign details
-meta-ads campaigns get 120210123456789
-
-# Pause a campaign
-meta-ads campaigns pause 120210123456789
-
-# Get performance metrics
+# 3. Use it
+meta-ads campaigns list --status ACTIVE
 meta-ads insights get --level campaign --date-preset last_7d
+meta-ads campaigns pause 120210123456789
 ```
 
 ## Commands
 
-### Authentication
+| Group | Commands |
+|-------|----------|
+| `auth` | `login`, `status`, `logout` |
+| `accounts` | `list`, `get`, `switch` |
+| `campaigns` | `list`, `get`, `create`, `update`, `pause`, `activate` |
+| `adsets` | `list`, `get`, `create`, `update`, `pause`, `activate` |
+| `ads` | `list`, `get`, `create`, `update`, `pause`, `activate` |
+| `adcreatives` | `list`, `get`, `create` |
+| `adimages` | `list`, `upload` |
+| `advideos` | `list`, `get`, `upload` |
+| `insights` | `get` |
+| `bulk` | `pause`, `activate`, `export` |
+| `config` | `get`, `set`, `list` |
+| `schema` | Fields, breakdowns, enums, commands discovery |
 
-```bash
-meta-ads auth login              # Interactive token input
-meta-ads auth login --token XXX  # Direct token input
-meta-ads auth status             # Check authentication status
-meta-ads auth logout             # Remove stored token
-```
+Run `meta-ads <command> --help` for flag details, or `meta-ads schema commands` for machine-parseable JSON.
 
-### Configuration
+## Output
 
-```bash
-meta-ads config set account_id act_123456789
-meta-ads config set output_format table
-meta-ads config get account_id
-meta-ads config list
-```
-
-### Accounts
-
-```bash
-meta-ads accounts list
-meta-ads accounts get act_123456789
-meta-ads accounts switch act_123456789
-```
-
-### Campaigns
-
-```bash
-meta-ads campaigns list
-meta-ads campaigns list --status ACTIVE
-meta-ads campaigns list --output table
-meta-ads campaigns get 120210123456789
-meta-ads campaigns create --name "Q1 Brand" --objective OUTCOME_AWARENESS
-meta-ads campaigns update 120210123456789 --name "Updated Name"
-meta-ads campaigns pause 120210123456789
-meta-ads campaigns activate 120210123456789
-```
-
-### Ad Sets
-
-```bash
-meta-ads adsets list
-meta-ads adsets list --campaign 120210123456789
-meta-ads adsets get 120310123456789
-meta-ads adsets pause 120310123456789
-meta-ads adsets activate 120310123456789
-```
-
-### Ads
-
-```bash
-meta-ads ads list
-meta-ads ads list --adset 120310123456789
-meta-ads ads get 120410123456789
-meta-ads ads pause 120410123456789
-meta-ads ads activate 120410123456789
-```
-
-### Ad Creatives
-
-```bash
-meta-ads adcreatives list
-meta-ads adcreatives get 120510123456789
-```
-
-### Insights
-
-```bash
-meta-ads insights get --level campaign --date-preset last_7d
-meta-ads insights get --level ad --date-range 2025-01-01:2025-01-31
-meta-ads insights get --level adset --breakdowns age,gender
-```
-
-### Bulk Operations
-
-```bash
-meta-ads bulk pause --type campaign --ids 123,456,789
-meta-ads bulk activate --type adset --ids 123,456
-meta-ads bulk export --type campaigns --status ACTIVE --output-file campaigns.json
-```
-
-## Output Formats
-
-### JSON (default)
-
-```bash
-meta-ads campaigns list
-```
+All commands return JSON by default. Field names match the [Meta Marketing API](https://developers.facebook.com/docs/marketing-apis) exactly.
 
 ```json
 {
   "success": true,
   "data": [
-    {
-      "id": "120210123456789",
-      "name": "Q1 Brand Campaign",
-      "status": "ACTIVE",
-      "objective": "OUTCOME_AWARENESS"
-    }
+    { "id": "120210123456789", "name": "Q1 Campaign", "status": "ACTIVE" }
   ],
   "meta": {
     "account_id": "act_123456789",
-    "timestamp": "2025-01-04T12:00:00.000Z"
+    "timestamp": "2025-01-04T12:00:00.000Z",
+    "pagination": { "has_next": true, "cursor": "abc123" },
+    "rate_limit": { "usage_pct": 28 }
   }
 }
 ```
 
-### Table
-
-```bash
-meta-ads campaigns list --output table
-```
-
-```
-┌────────────────────┬─────────────────────┬────────┬─────────────────────┐
-│ ID                 │ Name                │ Status │ Objective           │
-├────────────────────┼─────────────────────┼────────┼─────────────────────┤
-│ 120210123456789    │ Q1 Brand Campaign   │ ACTIVE │ OUTCOME_AWARENESS   │
-└────────────────────┴─────────────────────┴────────┴─────────────────────┘
-```
-
-## Configuration
-
-Configuration priority (highest to lowest):
-
-1. **Command flags**: `--account act_123`
-2. **Environment variables**: `META_ADS_ACCOUNT_ID=act_123`
-3. **Config file**: `~/.config/meta-ads/config.json`
-
-### Environment Variables
-
-```bash
-META_ADS_ACCESS_TOKEN   # Access token
-META_ADS_ACCOUNT_ID     # Default ad account
-META_ADS_OUTPUT         # Output format (json/table)
-META_ADS_VERBOSE        # Enable verbose output (true/false)
-META_ADS_API_VERSION    # API version (default: v22.0)
-```
+Table output is also available with `--output table`.
 
 ### Global Flags
 
+| Flag | Description |
+|------|-------------|
+| `--output-fields id,name,spend` | Return only specific fields |
+| `--full` | Include all available fields (default: minimal) |
+| `--no-meta` | Raw data without the success/meta wrapper |
+| `--count` | Return only the count of matching entities |
+| `--output table` | Table format instead of JSON |
+| `--quiet` | Suppress info messages |
+
+### Controlling Output Size
+
+```bash
+# Minimal fields (default) - 6-8 fields per entity
+meta-ads campaigns list
+
+# Only the fields you need
+meta-ads campaigns list --output-fields id,name,status
+
+# Just the count
+meta-ads campaigns list --status ACTIVE --count
+
+# Raw data, no envelope
+meta-ads campaigns list --no-meta
+
+# All available fields
+meta-ads campaigns list --full
 ```
--a, --account   Ad account ID
--o, --output    Output format (json/table)
--v, --verbose   Enable verbose output
--q, --quiet     Suppress non-essential output
+
+## Insights
+
+```bash
+# Campaign performance
+meta-ads insights get --level campaign --date-preset last_7d
+
+# With breakdowns
+meta-ads insights get --level ad --breakdowns age,gender --date-preset last_30d
+
+# Token-efficient summary
+meta-ads insights get --level ad --date-preset last_7d --summary --min-spend 10
+
+# Top/bottom performers
+meta-ads insights get --level ad --date-preset last_7d --flatten --top 5 --bottom 3
+
+# Compare periods
+meta-ads insights get --level campaign --compare last_7d:previous_7d
+
+# Ads with insights in one call
+meta-ads ads list --with-insights --date-preset last_7d --sort-by cost_per_result
 ```
 
 ## Error Handling
 
-Errors are returned as structured JSON:
+Errors return structured JSON with machine-parseable codes:
 
 ```json
 {
@@ -214,43 +133,87 @@ Errors are returned as structured JSON:
   "error": {
     "code": "RATE_LIMIT_EXCEEDED",
     "message": "Too many requests to Meta API.",
-    "details": {
-      "suggestion": "Wait before retrying. Check the retry_after value."
-    },
-    "retry_after": 60
-  }
+    "retryable": true,
+    "retry_after": 60,
+    "details": { "suggestion": "Wait before retrying." }
+  },
+  "meta": { "rate_limit": { "usage_pct": 100 } }
 }
 ```
 
-## Use with AI Agents
+Process exit codes indicate error category:
 
-This CLI is designed to be used by AI agents like Claude Code. The structured JSON output makes it easy to parse and act upon:
+| Exit | Category |
+|------|----------|
+| 0 | Success |
+| 1 | General/API error |
+| 2 | Authentication |
+| 3 | Rate limit |
+| 4 | Validation |
+| 5 | Not found |
+| 6 | Network |
+| 7 | Configuration |
+
+## Schema Discovery
+
+Agents can discover available fields, enums, and commands programmatically:
 
 ```bash
-# Get active campaigns as JSON for parsing
-meta-ads campaigns list --status ACTIVE
+# Available fields for a level
+meta-ads schema fields --level ad
 
-# Pause campaigns programmatically
-meta-ads campaigns pause 120210123456789
+# Valid enum values
+meta-ads schema --enum-name status
+# Returns: ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED"]
 
-# Get performance data for analysis
-meta-ads insights get --level campaign --date-preset last_30d
+# All commands with their flags as JSON
+meta-ads schema commands
+
+# Flags for a specific command
+meta-ads schema commands --command "campaigns list"
 ```
+
+## Mutation Safety
+
+Pause/activate operations are idempotent and report whether state changed:
+
+```json
+{
+  "success": true,
+  "data": { "id": "123", "status": "PAUSED" },
+  "action_taken": false,
+  "reason": "already_paused"
+}
+```
+
+## Configuration
+
+Priority (highest to lowest):
+
+1. Command flags: `--account act_123`
+2. Environment variables: `META_ADS_ACCOUNT_ID=act_123`
+3. Config file: `~/.config/meta-ads/config.json`
+
+### Environment Variables
+
+```bash
+META_ADS_ACCESS_TOKEN   # Access token
+META_ADS_ACCOUNT_ID     # Default ad account
+META_ADS_OUTPUT         # Output format (json/table)
+META_ADS_API_VERSION    # API version (default: v22.0)
+```
+
+## Agent Integration
+
+For AI agents (Claude Code, Cursor, etc.), see [AGENTS.md](AGENTS.md) for the complete reference with workflow examples, threshold guidelines, and all flag combinations.
 
 ## Development
 
 ```bash
-# Clone the repository
 git clone https://github.com/your-org/meta-ads-cli.git
 cd meta-ads-cli
-
-# Install dependencies
 npm install
-
-# Build
 npm run build
-
-# Run locally
 ./bin/run.js campaigns list
 ```
 

@@ -3,6 +3,8 @@ import { type FlagValues } from './config/manager.js';
 import { MetaAdsClient } from './api/client.js';
 import { OutputFormatter, createSuccessResponse, createErrorResponse, type TableColumn } from './output/formatter.js';
 import { CliError, isCliError } from './errors/handler.js';
+import { getExitCode } from './errors/codes.js';
+import type { PaginationMeta } from '../types/index.js';
 
 /**
  * Base command with common flags and utilities
@@ -39,6 +41,10 @@ export abstract class BaseCommand extends Command {
     }),
     full: Flags.boolean({
       description: 'Include all available fields (default: minimal for agent efficiency)',
+      default: false,
+    }),
+    count: Flags.boolean({
+      description: 'Return only the count of matching entities',
       default: false,
     }),
   };
@@ -104,7 +110,8 @@ export abstract class BaseCommand extends Command {
     'output-fields'?: string;
     'no-meta'?: boolean;
     full?: boolean;
-  }): FlagValues & { 'output-fields'?: string; 'no-meta'?: boolean; full?: boolean } {
+    count?: boolean;
+  }): FlagValues & { 'output-fields'?: string; 'no-meta'?: boolean; full?: boolean; count?: boolean } {
     return {
       account: flags.account,
       output: flags.output,
@@ -114,13 +121,38 @@ export abstract class BaseCommand extends Command {
       'output-fields': flags['output-fields'],
       'no-meta': flags['no-meta'],
       full: flags.full,
+      count: flags.count,
     };
+  }
+
+  /**
+   * Convert Meta API paging response to PaginationMeta
+   */
+  protected toPaginationMeta(paging?: { cursors?: { after?: string }; next?: string }): PaginationMeta | undefined {
+    if (!paging) return undefined;
+    return {
+      has_next: !!paging.next,
+      cursor: paging.cursors?.after,
+    };
+  }
+
+  /**
+   * Output just the count of items
+   */
+  protected outputCount(data: unknown[], accountId?: string): void {
+    if (this.noMetaWrapper) {
+      console.log(JSON.stringify({ count: data.length }));
+      return;
+    }
+    const rateLimit = this.client?.getRateLimitInfo();
+    const response = createSuccessResponse({ count: data.length }, accountId, undefined, rateLimit);
+    this.formatter.output(response);
   }
 
   /**
    * Output a success response
    */
-  protected outputSuccess<T>(data: T, accountId?: string, columns?: TableColumn<T extends Array<infer U> ? U : T>[]): void {
+  protected outputSuccess<T>(data: T, accountId?: string, columns?: TableColumn<T extends Array<infer U> ? U : T>[], pagination?: PaginationMeta): void {
     const filteredData = this.filterFields(data);
 
     // If --no-meta flag is set, output raw data without wrapper
@@ -131,7 +163,7 @@ export abstract class BaseCommand extends Command {
 
     // Include rate limit info if available
     const rateLimit = this.client?.getRateLimitInfo();
-    const response = createSuccessResponse(filteredData, accountId, undefined, rateLimit);
+    const response = createSuccessResponse(filteredData, accountId, pagination, rateLimit);
     this.formatter.output(response, columns as TableColumn<T>[]);
   }
 
@@ -174,15 +206,23 @@ export abstract class BaseCommand extends Command {
    * Output an error and exit
    */
   protected outputError(error: CliError | Error | unknown): never {
+    const rateLimit = this.client?.getRateLimitInfo();
+
     if (isCliError(error)) {
       const response = error.toResponse();
+      if (rateLimit) {
+        response.meta = { rate_limit: rateLimit };
+      }
       this.formatter.output(response);
-      this.exit(1);
+      this.exit(getExitCode(error.code));
     }
 
     // Handle non-CliError errors
     const message = error instanceof Error ? error.message : String(error);
     const response = createErrorResponse('UNKNOWN_ERROR', message);
+    if (rateLimit) {
+      response.meta = { rate_limit: rateLimit };
+    }
     this.formatter.output(response);
     this.exit(1);
   }

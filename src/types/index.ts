@@ -14,6 +14,9 @@ export interface ErrorResponse {
     details?: Record<string, unknown>;
     retry_after?: number;
   };
+  meta?: {
+    rate_limit?: RateLimitInfo;
+  };
 }
 
 export type ApiResponse<T> = SuccessResponse<T> | ErrorResponse;

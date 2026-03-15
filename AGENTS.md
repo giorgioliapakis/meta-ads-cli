@@ -195,7 +195,13 @@ meta-ads advideos upload --file ./product-demo.mp4 --name "Product Demo"
 meta-ads advideos upload --url https://example.com/video.mp4 --name "Remote Video"
 ```
 
-Note: Video processing may take time. Use `advideos get <id>` to check status.
+Use `--wait` to block until processing completes (polls every 5s, default 300s timeout):
+```bash
+meta-ads advideos upload --file ./video.mp4 --name "Demo" --wait
+meta-ads advideos upload --file ./video.mp4 --name "Demo" --wait --wait-timeout 600
+```
+
+Without `--wait`, use `advideos get <id>` to check status manually.
 
 ### insights
 
@@ -246,8 +252,10 @@ meta-ads insights get --level adset --date-preset last_30d --breakdowns age,gend
 | `schema objectives` | Show campaign objectives | `meta-ads schema objectives` |
 | `schema video-fields` | Show video-specific fields | `meta-ads schema video-fields` |
 | `schema --enum-name <field>` | Get valid values for a field | `meta-ads schema --enum-name status` |
+| `schema commands` | List all commands with their flags as JSON | `meta-ads schema commands` |
+| `schema commands --command <name>` | Get flags for a specific command | `meta-ads schema commands --command "campaigns list"` |
 
-**Schema Types:** `all`, `fields`, `breakdowns`, `date-presets`, `actions`, `objectives`, `video-fields`
+**Schema Types:** `all`, `fields`, `breakdowns`, `date-presets`, `actions`, `objectives`, `video-fields`, `commands`
 
 **Enum Discovery:**
 ```bash
@@ -279,6 +287,7 @@ These flags work on all commands:
 | `--output-fields` | | Filter JSON output to specific fields | `--output-fields id,name,spend` |
 | `--full` | | Include all available fields (default: minimal) | `--full` |
 | `--no-meta` | | Raw data without success/meta wrapper | `--no-meta` |
+| `--count` | | Return only the count of matching entities | `--count` |
 | `--verbose` | `-v` | Enable debug output | `-v` |
 | `--quiet` | `-q` | Suppress non-essential output | `-q` |
 
@@ -803,6 +812,43 @@ Example output for `meta-ads schema breakdowns`:
 
 The `rate_limit` object shows API usage. When `usage_pct` approaches 100, throttle requests.
 
+### Pagination Metadata
+
+List commands include pagination info in the `meta` when more data is available:
+```json
+{
+  "success": true,
+  "data": [...],
+  "meta": {
+    "pagination": {
+      "has_next": true,
+      "cursor": "abc123"
+    },
+    "rate_limit": { ... }
+  }
+}
+```
+
+- `has_next: true` — more pages available; pass `--after <cursor>` to fetch next page
+- `has_next: false` or `pagination` absent — no more data
+- When using `--all`, pagination metadata is omitted (all data already fetched)
+
+### Count Response
+
+Use `--count` on any list command to get just the count:
+```bash
+meta-ads campaigns list --status ACTIVE --count
+```
+```json
+{
+  "success": true,
+  "data": { "count": 12 },
+  "meta": { ... }
+}
+```
+
+Combine with `--all` for total count across all pages: `--count --all`.
+
 ### Mutation Response (pause/activate)
 ```json
 {
@@ -832,11 +878,29 @@ This enables idempotent operations - agents can safely retry without side effect
       "suggestion": "How to fix it"
     },
     "retry_after": 60
+  },
+  "meta": {
+    "rate_limit": { "usage_pct": 85 }
   }
 }
 ```
 
-The `retryable` field indicates if the error can be resolved by retrying.
+The `retryable` field indicates if the error can be resolved by retrying. Rate limit info is included in error responses when available, so agents can monitor API usage even on failures.
+
+### Exit Codes
+
+Process exit codes indicate error category for programmatic handling:
+
+| Exit Code | Category | Error Codes |
+|-----------|----------|-------------|
+| 0 | Success | — |
+| 1 | General/API error | `API_ERROR`, `OPERATION_FAILED`, `UNKNOWN_ERROR` |
+| 2 | Auth error | `AUTH_NOT_CONFIGURED`, `AUTH_TOKEN_EXPIRED`, `AUTH_TOKEN_INVALID` |
+| 3 | Rate limit | `RATE_LIMIT_EXCEEDED`, `QUOTA_EXCEEDED` |
+| 4 | Validation | `INVALID_ACCOUNT_ID`, `INVALID_PARAMETER`, `MISSING_REQUIRED_FIELD` |
+| 5 | Not found | `ENTITY_NOT_FOUND` |
+| 6 | Network | `NETWORK_ERROR`, `TIMEOUT` |
+| 7 | Config | `CONFIG_NOT_FOUND`, `INVALID_CONFIG` |
 
 ### Common Error Codes
 | Code | Retryable | Meaning |

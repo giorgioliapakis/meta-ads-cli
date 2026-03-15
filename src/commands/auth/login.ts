@@ -2,6 +2,7 @@ import { Command, Flags } from '@oclif/core';
 import { tokenManager } from '../../lib/auth/token-manager.js';
 import { OutputFormatter, createSuccessResponse, createErrorResponse } from '../../lib/output/formatter.js';
 import { isCliError } from '../../lib/errors/handler.js';
+import { getExitCode, ErrorCode } from '../../lib/errors/codes.js';
 
 export default class Login extends Command {
   static override description = 'Authenticate with Meta Ads API using an access token';
@@ -39,7 +40,7 @@ export default class Login extends Command {
     if (!token) {
       const response = createErrorResponse('AUTH_NOT_CONFIGURED', 'No access token provided.');
       formatter.output(response);
-      this.exit(1);
+      this.exit(getExitCode(ErrorCode.AUTH_NOT_CONFIGURED));
     }
 
     try {
@@ -66,7 +67,7 @@ export default class Login extends Command {
     } catch (error) {
       if (isCliError(error)) {
         formatter.output(error.toResponse());
-        this.exit(1);
+        this.exit(getExitCode(error.code));
       }
       const response = createErrorResponse('UNKNOWN_ERROR', error instanceof Error ? error.message : 'Failed to validate token');
       formatter.output(response);
@@ -75,10 +76,10 @@ export default class Login extends Command {
   }
 
   private async promptForToken(): Promise<string> {
-    console.log('\nTo get an access token:');
-    console.log('1. Go to Meta Business Suite > Business Settings');
-    console.log('2. Navigate to Users > System Users');
-    console.log('3. Generate a token with ads_management and ads_read permissions\n');
+    console.error('\nTo get an access token:');
+    console.error('1. Go to Meta Business Suite > Business Settings');
+    console.error('2. Navigate to Users > System Users');
+    console.error('3. Generate a token with ads_management and ads_read permissions\n');
     return new Promise((resolve) => {
       process.stdout.write('Enter your access token: ');
       const stdin = process.stdin;

@@ -218,8 +218,18 @@ export default class List extends AuthenticatedCommand {
           });
         }
 
-        this.outputSuccess(merged, this.client.getAccountId());
+        if (flags.count) {
+          this.outputCount(merged, this.client.getAccountId());
+          return;
+        }
+
+        this.outputSuccess(merged, this.client.getAccountId(), undefined, this.toPaginationMeta(result.paging));
       } else {
+        if (flags.count) {
+          this.outputCount(result.data, this.client.getAccountId());
+          return;
+        }
+
         const columns: TableColumn<Ad>[] = [
           { key: 'id', header: 'ID' },
           { key: 'name', header: 'Name' },
@@ -228,7 +238,7 @@ export default class List extends AuthenticatedCommand {
           { key: 'adset_id', header: 'Ad Set ID' },
         ];
 
-        this.outputSuccess(result.data, this.client.getAccountId(), columns);
+        this.outputSuccess(result.data, this.client.getAccountId(), columns, this.toPaginationMeta(result.paging));
       }
     });
   }
